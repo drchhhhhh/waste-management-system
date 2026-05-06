@@ -1,22 +1,90 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { db } from "../firebase/config";
 import { collection, onSnapshot } from "firebase/firestore";
 import BinCard from "./BinCard";
 import Map from "./Map";
 import RoutePanel from "./RoutePanel";
 import CollectionLog from "./CollectionLog";
+import {
+  BARANGAY_HALL,
+  interpolatePosition,
+} from "../utils/routingUtils";
 
 function Dashboard() {
   const [bins, setBins] = useState([]);
   const [selectedZone, setSelectedZone] = useState("All");
-const [completedStops, setCompletedStops] = useState([]);
+  const [completedStops, setCompletedStops] = useState([]);
+  const [truckPosition, setTruckPosition] = useState(BARANGAY_HALL);
+  const [routeStarted, setRouteStarted] = useState(false);
+  const [optimizedRoute, setOptimizedRoute] = useState([]);
+  const [currentStopIndex, setCurrentStopIndex] = useState(0);
+  const movementIntervalRef = useRef(null);
+  const currentPathProgressRef = useRef(0);
 
+  // Fetch bins from Firestore
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "bins"), (snapshot) => {
       const data = snapshot.docs.map((doc) => doc.data());
       setBins(data);
     });
     return () => unsub();
+  }, []);
+
+  // Truck movement animation
+  useEffect(() => {
+    if (!routeStarted || optimizedRoute.length === 0 || completedStops.length >= optimizedRoute.length) {
+      if (movementIntervalRef.current) {
+        clearInterval(movementIntervalRef.current);
+        movementIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const currentBin = optimizedRoute[currentStopIndex];
+    if (!currentBin) return;
+
+    // Animate truck along the path from current position to next bin
+    movementIntervalRef.current = setInterval(() => {
+      currentPathProgressRef.current += 0.02; // Move in small steps
+
+      if (currentPathProgressRef.current >= 1) {
+        // Reached the bin, move to next stop
+        setCurrentStopIndex(prev => prev + 1);
+        currentPathProgressRef.current = 0;
+      } else {
+        // Interpolate position along the path
+        const newPosition = interpolatePosition(
+          truckPosition,
+          { lat: currentBin.lat, lng: currentBin.lng },
+          currentPathProgressRef.current
+        );
+        setTruckPosition(newPosition);
+      }
+    }, 100); // Update position every 100ms for smooth animation
+
+    return () => {
+      if (movementIntervalRef.current) {
+        clearInterval(movementIntervalRef.current);
+      }
+    };
+  }, [routeStarted, optimizedRoute, currentStopIndex, completedStops, truckPosition]);
+
+  // Handle route start from RoutePanel
+  const handleRouteStart = (route) => {
+    setOptimizedRoute(route);
+    setRouteStarted(true);
+    setCurrentStopIndex(0);
+    setTruckPosition({ ...BARANGAY_HALL });
+    currentPathProgressRef.current = 0;
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (movementIntervalRef.current) {
+        clearInterval(movementIntervalRef.current);
+      }
+    };
   }, []);
 
   const zones = ["All", "Zone 1", "Zone 2", "Zone 3", "Zone 4"];
@@ -83,12 +151,24 @@ const [completedStops, setCompletedStops] = useState([]);
 
         {/* Map */}
         <div style={{ marginBottom: "20px" }}>
-          <Map bins={bins} completedStops={completedStops} />
+          <Map
+            bins={bins}
+            completedStops={completedStops}
+            truckPosition={truckPosition}
+            currentStopIndex={currentStopIndex}
+          />
         </div>
 
         {/* Route Panel */}
         <div style={{ marginBottom: "20px" }}>
-            <RoutePanel bins={bins} completedStops={completedStops} setCompletedStops={setCompletedStops} />
+          <RoutePanel
+            bins={bins}
+            completedStops={completedStops}
+            setCompletedStops={setCompletedStops}
+            onRouteChange={handleRouteStart}
+            truckPosition={truckPosition}
+            setTruckPosition={setTruckPosition}
+          />
         </div>
 
         {/* Collection Log */}

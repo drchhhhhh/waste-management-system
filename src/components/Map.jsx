@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import {
+  BARANGAY_HALL,
+  nearestNeighborRoute,
+  calculateDistance,
+} from "../utils/routingUtils";
 
 const statusColor = {
   normal: "#1e8449",
@@ -9,38 +14,8 @@ const statusColor = {
   critical: "#c0392b",
 };
 
-const DEPOT = { lat: 13.7572, lng: 121.0588 };
-
 function getDistance(a, b) {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const lat1 = (a.lat * Math.PI) / 180;
-  const lat2 = (b.lat * Math.PI) / 180;
-  const x =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function optimizeRoute(bins) {
-  if (bins.length === 0) return [];
-  const unvisited = [...bins];
-  const route = [];
-  let current = DEPOT;
-  while (unvisited.length > 0) {
-    let nearestIndex = 0;
-    let nearestDist = Infinity;
-    unvisited.forEach((bin, i) => {
-      const dist = getDistance(current, bin);
-      if (dist < nearestDist) { nearestDist = dist; nearestIndex = i; }
-    });
-    const nearest = unvisited.splice(nearestIndex, 1)[0];
-    route.push(nearest);
-    current = nearest;
-  }
-  return route;
+  return calculateDistance(a.lat, a.lng, b.lat, b.lng) * 1000; // Convert to meters
 }
 
 // Driver location marker + heading arrow
@@ -103,8 +78,8 @@ function DriverMarker({ position }) {
   return null;
 }
 
-// Route line drawn via OSRM
-function RouteLayer({ priorityBins, completedStops, driverPosition }) {
+// Route line drawn via OSRM with grey (completed) and red (active) segments
+function RouteLayer({ priorityBins, completedStops, driverPosition, currentStopIndex }) {
   const map = useMap();
   const routeLineRef = useRef(null);
   const markersRef = useRef([]);
@@ -119,14 +94,13 @@ function RouteLayer({ priorityBins, completedStops, driverPosition }) {
     const remaining = priorityBins.filter(b => !completedStops.includes(b.binId));
     if (remaining.length === 0) return;
 
-    const optimized = optimizeRoute(remaining);
+    // Use the improved nearest neighbor algorithm
+    const optimized = nearestNeighborRoute(remaining, BARANGAY_HALL);
 
-    // Start from driver's position if available, otherwise depot
-    const startPoint = driverPosition
-      ? { lat: driverPosition.lat, lng: driverPosition.lng }
-      : DEPOT;
+    // Start from barangay hall
+    const startPoint = BARANGAY_HALL;
 
-    const waypoints = [startPoint, ...optimized, DEPOT];
+    const waypoints = [startPoint, ...optimized, BARANGAY_HALL];
     const coords = waypoints.map(p => `${p.lng},${p.lat}`).join(";");
     const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
 
@@ -137,25 +111,45 @@ function RouteLayer({ priorityBins, completedStops, driverPosition }) {
 
         const geojson = data.routes[0].geometry;
 
+        // Full route in grey
         const routeLine = L.geoJSON(geojson, {
-          style: { color: "#2e86c1", weight: 5, opacity: 0.85 }
+          style: { color: "#cccccc", weight: 5, opacity: 0.85 }
         }).addTo(map);
 
-        const dashedLine = L.geoJSON(geojson, {
-          style: { color: "white", weight: 2, opacity: 0.6, dashArray: "8, 12" }
-        }).addTo(map);
+        // Active segment (next stop) in red if available
+        if (currentStopIndex !== undefined && currentStopIndex < optimized.length) {
+          const nextBin = optimized[currentStopIndex];
+          const segmentStart = driverPosition || BARANGAY_HALL;
+          const segmentCoords = `${segmentStart.lng},${segmentStart.lat};${nextBin.lng},${nextBin.lat}`;
+          const activeUrl = `https://router.project-osrm.org/route/v1/driving/${segmentCoords}?overview=full&geometries=geojson`;
 
-        routeLineRef.current = [routeLine, dashedLine];
+          fetch(activeUrl)
+            .then(res => res.json())
+            .then(activeData => {
+              if (activeData.routes && activeData.routes.length > 0) {
+                const activeGeojson = activeData.routes[0].geometry;
+                const activeLine = L.geoJSON(activeGeojson, {
+                  style: { color: "#e74c3c", weight: 6, opacity: 0.95 }
+                }).addTo(map);
+                routeLineRef.current.push(activeLine);
+              }
+            })
+            .catch(err => console.error("Active route error:", err));
+        }
+
+        routeLineRef.current = [routeLine];
 
         // Numbered stop markers
         optimized.forEach((bin, index) => {
-          const isNext = index === 0;
+          const isNext = index === currentStopIndex;
+          const isCompleted = index < (currentStopIndex || 0);
+          
           const icon = L.divIcon({
             className: "",
             html: `
               <div style="
                 width: 32px; height: 32px;
-                background: ${isNext ? "#f39c12" : statusColor[bin.status] || "#888"};
+                background: ${isCompleted ? "#95a5a6" : isNext ? "#e74c3c" : statusColor[bin.status] || "#888"};
                 border: 3px solid white;
                 border-radius: 50%;
                 display: flex; align-items: center; justify-content: center;
@@ -173,12 +167,12 @@ function RouteLayer({ priorityBins, completedStops, driverPosition }) {
               <strong>${bin.binId}</strong><br/>
               ${bin.zone}<br/>
               Fill: ${bin.fillLevel}%<br/>
-              Stop #${index + 1}${isNext ? " — <b>NEXT STOP</b>" : ""}
+              Stop #${index + 1}${isNext ? " — <b>CURRENT STOP</b>" : isCompleted ? " — Collected" : ""}
             `);
           markersRef.current.push(marker);
         });
 
-        // Depot marker
+        // Barangay Hall marker
         const depotIcon = L.divIcon({
           className: "",
           html: `
@@ -194,7 +188,7 @@ function RouteLayer({ priorityBins, completedStops, driverPosition }) {
           iconAnchor: [18, 18],
         });
 
-        const depotMarker = L.marker([DEPOT.lat, DEPOT.lng], { icon: depotIcon })
+        const depotMarker = L.marker([BARANGAY_HALL.lat, BARANGAY_HALL.lng], { icon: depotIcon })
           .addTo(map)
           .bindPopup("<strong>Barangay Hall</strong><br/>Depot — Start / End");
         markersRef.current.push(depotMarker);
@@ -214,6 +208,7 @@ function RouteLayer({ priorityBins, completedStops, driverPosition }) {
     completedStops.join(","),
     driverPosition?.lat,
     driverPosition?.lng,
+    currentStopIndex,
   ]);
 
   return null;
@@ -242,37 +237,6 @@ function BinMarkers({ bins, priorityBinIds }) {
     ));
 }
 
-// Centers map on driver
-function RecenterButton({ position }) {
-  const map = useMap();
-  if (!position) return null;
-  return (
-    <div
-      onClick={() => map.setView([position.lat, position.lng], 17)}
-      style={{
-        position: "absolute",
-        bottom: "16px",
-        right: "16px",
-        zIndex: 1000,
-        background: "white",
-        border: "2px solid #2e86c1",
-        borderRadius: "10px",
-        padding: "8px 14px",
-        cursor: "pointer",
-        fontSize: "13px",
-        fontWeight: 700,
-        color: "#2e86c1",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px"
-      }}
-    >
-      📍 My Location
-    </div>
-  );
-}
-
 function RecenterControl({ position }) {
   const map = useMap();
   useEffect(() => {
@@ -298,8 +262,8 @@ function RecenterControl({ position }) {
   return null;
 }
 
-function Map({ bins, completedStops = [] }) {
-  const [driverPosition, setDriverPosition] = useState(null);
+function Map({ bins, completedStops = [], truckPosition = null, currentStopIndex = undefined }) {
+  const [driverPosition, setDriverPosition] = useState(truckPosition);
   const [locationError, setLocationError] = useState(null);
   const [trackingActive, setTrackingActive] = useState(false);
   const watchIdRef = useRef(null);
@@ -462,6 +426,7 @@ function Map({ bins, completedStops = [] }) {
             priorityBins={priorityBins}
             completedStops={completedStops}
             driverPosition={driverPosition}
+            currentStopIndex={currentStopIndex}
           />
         )}
         {driverPosition && <DriverMarker position={driverPosition} />}

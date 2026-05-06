@@ -1,40 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { db } from "../firebase/config";
 import { doc, updateDoc } from "firebase/firestore";
+import {
+  BARANGAY_HALL,
+  nearestNeighborRoute,
+  calculateDistance,
+  isAtBinLocation,
+} from "../utils/routingUtils";
 
-const DEPOT = { lat: 13.7572, lng: 121.0588, label: "Barangay Hall" };
-
-function getDistance(a, b) {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const lat1 = (a.lat * Math.PI) / 180;
-  const lat2 = (b.lat * Math.PI) / 180;
-  const x =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function optimizeRoute(bins) {
-  if (bins.length === 0) return [];
-  const unvisited = [...bins];
-  const route = [];
-  let current = DEPOT;
-  while (unvisited.length > 0) {
-    let nearestIndex = 0;
-    let nearestDist = Infinity;
-    unvisited.forEach((bin, i) => {
-      const dist = getDistance(current, bin);
-      if (dist < nearestDist) { nearestDist = dist; nearestIndex = i; }
-    });
-    const nearest = unvisited.splice(nearestIndex, 1)[0];
-    route.push({ ...nearest, distanceFromPrev: Math.round(nearestDist) });
-    current = nearest;
-  }
-  return route;
-}
+const DEPOT = BARANGAY_HALL;
 
 const statusColors = {
   critical: { bg: "#fadbd8", border: "#c0392b", text: "#c0392b", badge: "#c0392b" },
@@ -51,39 +25,125 @@ function StepConnector({ distance }) {
   );
 }
 
-function RoutePanel({ bins, completedStops, setCompletedStops }) {
+function RoutePanel({ bins, completedStops, setCompletedStops, onRouteChange, truckPosition, setTruckPosition }) {
   const [routeStarted, setRouteStarted] = useState(false);
   const [optimizedRoute, setOptimizedRoute] = useState([]);
+  const [animatingBins, setAnimatingBins] = useState({}); // Track bins being collected
+  const collectionIntervalRef = useRef(null);
 
-  const priorityBins = bins
-    .filter((b) => b.fillLevel >= 70)
-    .sort((a, b) => b.fillLevel - a.fillLevel);
+  const priorityBins = bins.filter((b) => b.fillLevel >= 70);
 
+  // Build route once and keep it until manually randomized
   useEffect(() => {
-    setOptimizedRoute(optimizeRoute(priorityBins));
-    setCompletedStops([]);
-  }, [bins.map(b => b.binId + b.fillLevel).join(",")]);
+    if (priorityBins.length > 0 && optimizedRoute.length === 0) {
+      const newRoute = nearestNeighborRoute(priorityBins, BARANGAY_HALL);
+      const routeWithDistances = newRoute.map((bin, idx) => {
+        const prevLocation = idx === 0 ? BARANGAY_HALL : newRoute[idx - 1];
+        const distance = calculateDistance(
+          prevLocation.lat,
+          prevLocation.lng,
+          bin.lat,
+          bin.lng
+        ) * 1000; // Convert to meters
+        return { ...bin, distanceFromPrev: Math.round(distance) };
+      });
+      setOptimizedRoute(routeWithDistances);
+    }
+  }, [priorityBins.length]);
 
+  // Manual randomize button - regenerate route
+  const handleRandomizeRoute = () => {
+    const newRoute = nearestNeighborRoute(priorityBins, BARANGAY_HALL);
+    const routeWithDistances = newRoute.map((bin, idx) => {
+      const prevLocation = idx === 0 ? BARANGAY_HALL : newRoute[idx - 1];
+      const distance = calculateDistance(
+        prevLocation.lat,
+        prevLocation.lng,
+        bin.lat,
+        bin.lng
+      ) * 1000;
+      return { ...bin, distanceFromPrev: Math.round(distance) };
+    });
+    setOptimizedRoute(routeWithDistances);
+    setCompletedStops([]);
+  };
+
+  // Start route - initialize truck position at barangay hall
+  const handleStartRoute = () => {
+    setRouteStarted(true);
+    setTruckPosition({ ...BARANGAY_HALL });
+    setCompletedStops([]);
+    // Don't clear route - keep the optimized route
+  };
+
+  // Calculate return distance
   const returnDist = optimizedRoute.length > 0
-    ? Math.round(getDistance(optimizedRoute[optimizedRoute.length - 1], DEPOT))
+    ? Math.round(calculateDistance(
+        optimizedRoute[optimizedRoute.length - 1].lat,
+        optimizedRoute[optimizedRoute.length - 1].lng,
+        DEPOT.lat,
+        DEPOT.lng
+      ) * 1000)
     : 0;
 
+  // Calculate total distance
   const totalDistance = (
     optimizedRoute.reduce((s, b) => s + b.distanceFromPrev, 0) + returnDist
   ) / 1000;
 
   const currentStopIndex = completedStops.length;
-  const allDone = routeStarted && completedStops.length === priorityBins.length;
+  const allDone = routeStarted && completedStops.length === optimizedRoute.length;
 
-  const handleCollect = async (bin) => {
-    setCompletedStops(prev => [...prev, bin.binId]);
-    await updateDoc(doc(db, "bins", bin.binId), {
-      fillLevel: 0,
-      status: "normal",
-      lastUpdated: new Date().toISOString(),
-      lastCollected: new Date().toISOString(),
-    });
-  };
+  // Auto bin collection when truck reaches location
+  useEffect(() => {
+    if (!routeStarted || completedStops.length >= optimizedRoute.length || !truckPosition) {
+      return;
+    }
+
+    const currentBin = optimizedRoute[currentStopIndex];
+    if (!currentBin) return;
+
+    // Check if truck is at current bin location
+    if (isAtBinLocation(truckPosition, currentBin, 0.02)) {
+      if (!animatingBins[currentBin.binId]) {
+        // Start collection animation
+        setAnimatingBins(prev => ({ ...prev, [currentBin.binId]: true }));
+
+        // Animate fill level down over 10 seconds
+        let steps = 0;
+        const maxSteps = 20;
+        collectionIntervalRef.current = setInterval(async () => {
+          steps++;
+          const newFillLevel = Math.max(0, currentBin.fillLevel * (1 - steps / maxSteps));
+          
+          // Update local state
+          bins.find(b => b.binId === currentBin.binId).fillLevel = newFillLevel;
+
+          if (steps >= maxSteps) {
+            clearInterval(collectionIntervalRef.current);
+            // Mark collection complete
+            await updateDoc(doc(db, "bins", currentBin.binId), {
+              fillLevel: 0,
+              status: "normal",
+              lastUpdated: new Date().toISOString(),
+              lastCollected: new Date().toISOString(),
+            });
+            setCompletedStops(prev => [...prev, currentBin.binId]);
+            setAnimatingBins(prev => ({ ...prev, [currentBin.binId]: false }));
+          }
+        }, 500); // Update every 500ms = 10s total for 20 steps
+      }
+    }
+  }, [routeStarted, truckPosition, currentStopIndex, optimizedRoute, completedStops, animatingBins]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (collectionIntervalRef.current) {
+        clearInterval(collectionIntervalRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div style={{
@@ -109,22 +169,42 @@ function RoutePanel({ bins, completedStops, setCompletedStops }) {
         </div>
 
         {priorityBins.length > 0 && !allDone && (
-          <button
-            onClick={() => routeStarted ? (setRouteStarted(false), setCompletedStops([])) : setRouteStarted(true)}
-            style={{
-              background: routeStarted ? "#888" : "#1a5276",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              padding: "10px 20px",
-              fontSize: "13px",
-              cursor: "pointer",
-              fontWeight: 700,
-              flexShrink: 0
-            }}
-          >
-            {routeStarted ? "✕ Cancel Route" : "▶ Start Route"}
-          </button>
+          <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+            <button
+              onClick={handleStartRoute}
+              disabled={routeStarted}
+              style={{
+                background: routeStarted ? "#ccc" : "#1a5276",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                fontSize: "13px",
+                cursor: routeStarted ? "default" : "pointer",
+                fontWeight: 700,
+                opacity: routeStarted ? 0.5 : 1
+              }}
+            >
+              {routeStarted ? "✓ Route Active" : "▶ Start Route"}
+            </button>
+            <button
+              onClick={handleRandomizeRoute}
+              disabled={routeStarted}
+              style={{
+                background: routeStarted ? "#ccc" : "#d35400",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                fontSize: "13px",
+                cursor: routeStarted ? "default" : "pointer",
+                fontWeight: 700,
+                opacity: routeStarted ? 0.5 : 1
+              }}
+            >
+              🔄 Randomize
+            </button>
+          </div>
         )}
       </div>
 
@@ -187,7 +267,7 @@ function RoutePanel({ bins, completedStops, setCompletedStops }) {
             {/* Stops */}
             {optimizedRoute.map((stop, index) => {
               const isCompleted = completedStops.includes(stop.binId);
-              const isCurrent = routeStarted && index === currentStopIndex && !allDone;
+              const isCurrent = routeStarted && index === completedStops.length && !allDone;
               const colors = isCompleted ? statusColors.normal : statusColors[stop.status] || statusColors.normal;
 
               return (
@@ -250,20 +330,15 @@ function RoutePanel({ bins, completedStops, setCompletedStops }) {
                       </div>
                     </div>
 
-                    {/* Collect button — only current stop */}
+                    {/* Auto-collecting indicator */}
                     {isCurrent && (
-                      <button
-                        onClick={() => handleCollect(stop)}
-                        style={{
-                          background: "#1e8449", color: "white",
-                          border: "none", borderRadius: "8px",
-                          padding: "8px 16px", fontSize: "12px",
-                          cursor: "pointer", fontWeight: 700,
-                          whiteSpace: "nowrap", flexShrink: 0
-                        }}
-                      >
-                        ✓ Mark Collected
-                      </button>
+                      <div style={{
+                        fontSize: "12px", fontWeight: 700, color: "#f39c12",
+                        whiteSpace: "nowrap", flexShrink: 0, padding: "4px 8px",
+                        background: "#fff9e6", borderRadius: "6px"
+                      }}>
+                        🔄 Collecting...
+                      </div>
                     )}
                   </div>
                 </React.Fragment>
