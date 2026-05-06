@@ -5,7 +5,11 @@ import "./App.css";
 
 function App() {
   useEffect(() => {
-    startSimulator();
+    // Start the simulator and save the cleanup function
+    const cleanup = startSimulator();
+    
+    // This physically kills the old simulator if React ever reloads the page
+    return cleanup; 
   }, []);
 
   return (
