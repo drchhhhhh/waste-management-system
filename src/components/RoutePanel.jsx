@@ -1,126 +1,164 @@
-import React, { useState, useEffect } from "react";
-import { db } from "../firebase/config";
-import { doc, updateDoc } from "firebase/firestore";
+import React, { useMemo } from "react";
 
-const DEPOT = { lat: 13.7572, lng: 121.0588, label: "Barangay Hall" };
+const DEPOT = { lat: 13.7572, lng: 121.0588, binId: "Barangay Hall", zone: "Depot" };
+
+function hasValidCoordinates(point) {
+  return Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng));
+}
+
+function normalizePoint(point) {
+  return { ...point, lat: Number(point.lat), lng: Number(point.lng) };
+}
 
 function getDistance(a, b) {
+  if (!hasValidCoordinates(a) || !hasValidCoordinates(b)) return Infinity;
+
+  const pointA = normalizePoint(a);
+  const pointB = normalizePoint(b);
   const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const lat1 = (a.lat * Math.PI) / 180;
-  const lat2 = (b.lat * Math.PI) / 180;
+  const dLat = ((pointB.lat - pointA.lat) * Math.PI) / 180;
+  const dLng = ((pointB.lng - pointA.lng) * Math.PI) / 180;
+  const lat1 = (pointA.lat * Math.PI) / 180;
+  const lat2 = (pointB.lat * Math.PI) / 180;
   const x =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function optimizeRoute(bins) {
-  if (bins.length === 0) return [];
-  const unvisited = [...bins];
+function optimizeRoute(bins, startPoint = DEPOT) {
+  const unvisited = bins.filter(hasValidCoordinates).map(normalizePoint);
   const route = [];
-  let current = DEPOT;
+  let current = normalizePoint(startPoint);
+
   while (unvisited.length > 0) {
     let nearestIndex = 0;
-    let nearestDist = Infinity;
-    unvisited.forEach((bin, i) => {
-      const dist = getDistance(current, bin);
-      if (dist < nearestDist) { nearestDist = dist; nearestIndex = i; }
+    let nearestDistance = Infinity;
+
+    unvisited.forEach((bin, index) => {
+      const distance = getDistance(current, bin);
+      const currentNearest = unvisited[nearestIndex];
+      const isCloser = distance < nearestDistance;
+      const isTieButEarlierId =
+        distance === nearestDistance && String(bin.binId).localeCompare(String(currentNearest?.binId || "")) < 0;
+
+      if (isCloser || isTieButEarlierId) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
     });
+
     const nearest = unvisited.splice(nearestIndex, 1)[0];
-    route.push({ ...nearest, distanceFromPrev: Math.round(nearestDist) });
+    route.push({ ...nearest, distanceFromPrev: Math.round(nearestDistance) });
     current = nearest;
   }
+
   return route;
 }
 
+function getCollectorStart(bins, completedStops) {
+  const lastCompletedId = [...completedStops].reverse().find(Boolean);
+  const lastCompletedBin = bins.find((bin) => bin.binId === lastCompletedId && hasValidCoordinates(bin));
+  return lastCompletedBin ? normalizePoint(lastCompletedBin) : DEPOT;
+}
+
+function orderBinsByRouteIds(bins, routeBinIds = []) {
+  const binById = new Map(bins.filter(hasValidCoordinates).map((bin) => [bin.binId, normalizePoint(bin)]));
+  return routeBinIds.map((binId) => binById.get(binId)).filter(Boolean);
+}
+
+function attachSequentialDistances(routeBins, startPoint = DEPOT) {
+  let current = normalizePoint(startPoint);
+  return routeBins.map((bin) => {
+    const distanceFromPrev = Math.round(getDistance(current, bin));
+    current = bin;
+    return { ...bin, distanceFromPrev };
+  });
+}
+
 const statusColors = {
-  critical: { bg: "#fadbd8", border: "#c0392b", text: "#c0392b", badge: "#c0392b" },
-  warning:  { bg: "#fdebd0", border: "#d35400", text: "#d35400", badge: "#d35400" },
-  normal:   { bg: "#d5f5e3", border: "#1e8449", text: "#1e8449", badge: "#1e8449" },
+  critical: { bg: "#fadbd8", border: "#c0392b", text: "#c0392b" },
+  warning: { bg: "#fdebd0", border: "#d35400", text: "#d35400" },
+  normal: { bg: "#d5f5e3", border: "#1e8449", text: "#1e8449" },
 };
 
-function StepConnector({ distance }) {
+function StepConnector({ distance, active }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "0 20px", margin: "2px 0" }}>
-      <div style={{ width: "2px", height: "24px", background: "#ddd", marginLeft: "11px", flexShrink: 0 }} />
-      <span style={{ fontSize: "11px", color: "#aaa" }}>{distance}m</span>
+      <div style={{ width: "2px", height: "24px", background: active ? "#e74c3c" : "#bbb", marginLeft: "11px", flexShrink: 0 }} />
+      <span style={{ fontSize: "11px", color: active ? "#e74c3c" : "#888", fontWeight: active ? 700 : 400 }}>
+        {Number.isFinite(distance) ? `${distance}m` : "--"}
+      </span>
     </div>
   );
 }
 
-function RoutePanel({ bins, completedStops, setCompletedStops }) {
-  const [routeStarted, setRouteStarted] = useState(false);
-  const [optimizedRoute, setOptimizedRoute] = useState([]);
+function RoutePanel({
+  bins,
+  completedStops = [],
+  routeStarted = false,
+  routeBinIds = [],
+  collectingBinId = null,
+  onStartRoute,
+  onCancelRoute,
+}) {
+  const routeBins = useMemo(() => {
+    if (routeBinIds.length > 0) {
+      return orderBinsByRouteIds(bins, routeBinIds);
+    }
 
-  const priorityBins = bins
-    .filter((b) => b.fillLevel >= 70)
-    .sort((a, b) => b.fillLevel - a.fillLevel);
+    return optimizeRoute(
+      bins.filter((bin) => Number(bin.fillLevel) >= 70 && hasValidCoordinates(bin)),
+      DEPOT
+    );
+  }, [bins, routeBinIds.join(",")]);
 
-  useEffect(() => {
-    setOptimizedRoute(optimizeRoute(priorityBins));
-    setCompletedStops([]);
-  }, [bins.map(b => b.binId + b.fillLevel).join(",")]);
-
-  const returnDist = optimizedRoute.length > 0
-    ? Math.round(getDistance(optimizedRoute[optimizedRoute.length - 1], DEPOT))
-    : 0;
-
-  const totalDistance = (
-    optimizedRoute.reduce((s, b) => s + b.distanceFromPrev, 0) + returnDist
-  ) / 1000;
-
-  const currentStopIndex = completedStops.length;
-  const allDone = routeStarted && completedStops.length === priorityBins.length;
-
-  const handleCollect = async (bin) => {
-    setCompletedStops(prev => [...prev, bin.binId]);
-    await updateDoc(doc(db, "bins", bin.binId), {
-      fillLevel: 0,
-      status: "normal",
-      lastUpdated: new Date().toISOString(),
-      lastCollected: new Date().toISOString(),
-    });
-  };
+  const collectorStart = useMemo(() => getCollectorStart(bins, completedStops), [bins, completedStops]);
+  const remainingRouteBins = routeBins.filter((bin) => !completedStops.includes(bin.binId));
+  const orderedRoute = attachSequentialDistances(remainingRouteBins, collectorStart);
+  const fullPlannedRoute = attachSequentialDistances(routeBins, DEPOT);
+  const scheduledCount = routeBins.length;
+  const totalDistance = orderedRoute.reduce((sum, bin) => sum + bin.distanceFromPrev, 0) / 1000;
+  const routeComplete = !routeStarted && scheduledCount > 0 && completedStops.length >= scheduledCount;
 
   return (
-    <div style={{
-      background: "white",
-      borderRadius: "12px",
-      padding: "20px",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
-      marginBottom: "20px"
-    }}>
-
-      {/* Header */}
+    <div
+      style={{
+        background: "white",
+        borderRadius: "12px",
+        padding: "20px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
+        marginBottom: "20px",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
             <span style={{ fontSize: "18px" }}>🚛</span>
             <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1a5276" }}>
-              AI-Optimized Collection Route
+              Shortest Path First Collection Route
             </h3>
           </div>
           <p style={{ margin: 0, fontSize: "12px", color: "#888" }}>
-            Nearest Neighbor Algorithm — minimizes total travel distance
+            The route is locked using shortest-path-first order from Barangay Hall when Start Route is clicked.
           </p>
         </div>
 
-        {priorityBins.length > 0 && !allDone && (
+        {scheduledCount > 0 && (
           <button
-            onClick={() => routeStarted ? (setRouteStarted(false), setCompletedStops([])) : setRouteStarted(true)}
+            onClick={routeStarted ? onCancelRoute : onStartRoute}
+            disabled={Boolean(collectingBinId)}
             style={{
-              background: routeStarted ? "#888" : "#1a5276",
+              background: collectingBinId ? "#9aa7b0" : routeStarted ? "#888" : "#1a5276",
               color: "white",
               border: "none",
               borderRadius: "8px",
               padding: "10px 20px",
               fontSize: "13px",
-              cursor: "pointer",
+              cursor: collectingBinId ? "not-allowed" : "pointer",
               fontWeight: 700,
-              flexShrink: 0
+              flexShrink: 0,
             }}
           >
             {routeStarted ? "✕ Cancel Route" : "▶ Start Route"}
@@ -128,15 +166,17 @@ function RoutePanel({ bins, completedStops, setCompletedStops }) {
         )}
       </div>
 
-      {priorityBins.length === 0 ? (
-        <div style={{
-          background: "#d5f5e3",
-          borderRadius: "10px",
-          padding: "16px 20px",
-          display: "flex",
-          alignItems: "center",
-          gap: "12px"
-        }}>
+      {scheduledCount === 0 && !routeComplete ? (
+        <div
+          style={{
+            background: "#d5f5e3",
+            borderRadius: "10px",
+            padding: "16px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
           <span style={{ fontSize: "22px" }}>✅</span>
           <div>
             <div style={{ fontWeight: 700, color: "#1e8449", fontSize: "14px" }}>All bins are good</div>
@@ -145,174 +185,163 @@ function RoutePanel({ bins, completedStops, setCompletedStops }) {
         </div>
       ) : (
         <>
-          {/* Stats Row */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
             {[
-              { label: "Priority bins", value: priorityBins.length },
-              { label: "Total distance", value: `${totalDistance.toFixed(2)} km` },
-              { label: "Completed", value: `${completedStops.length}/${priorityBins.length}` },
-            ].map(stat => (
-              <div key={stat.label} style={{
-                flex: "1", minWidth: "100px",
-                background: "#f0f4f8",
-                borderRadius: "10px",
-                padding: "10px 14px"
-              }}>
-                <div style={{ fontSize: "20px", fontWeight: 700, color: "#1a5276" }}>{stat.value}</div>
+              { label: "Scheduled bins", value: scheduledCount },
+              { label: "Remaining route distance", value: `${totalDistance.toFixed(2)} km` },
+              { label: "Collected", value: `${completedStops.length}/${scheduledCount}` },
+              { label: "Status", value: collectingBinId ? "Collecting" : routeStarted ? "In transit" : routeComplete ? "Complete" : "Ready" },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                style={{
+                  flex: "1",
+                  minWidth: "120px",
+                  background: "#f0f4f8",
+                  borderRadius: "10px",
+                  padding: "10px 14px",
+                }}
+              >
+                <div style={{ fontSize: stat.label === "Status" ? "16px" : "20px", fontWeight: 700, color: "#1a5276" }}>{stat.value}</div>
                 <div style={{ fontSize: "11px", color: "#888", marginTop: "2px" }}>{stat.label}</div>
               </div>
             ))}
           </div>
 
-          {/* Route Timeline */}
           <div>
-
-            {/* Depot Start */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: "12px",
-              background: "#eaf4fb", borderRadius: "10px",
-              padding: "12px 16px", border: "1px solid #d6eaf8"
-            }}>
-              <div style={{
-                width: "28px", height: "28px", borderRadius: "50%",
-                background: "#2e86c1", display: "flex", alignItems: "center",
-                justifyContent: "center", flexShrink: 0, fontSize: "14px"
-              }}>🏠</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                background: "#eaf4fb",
+                borderRadius: "10px",
+                padding: "12px 16px",
+                border: "1px solid #d6eaf8",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: "#2e86c1",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  fontSize: "14px",
+                }}
+              >
+                {collectorStart.binId === "Barangay Hall" ? "🏠" : "🚛"}
+              </div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#1a5276" }}>Barangay Hall</div>
-                <div style={{ fontSize: "11px", color: "#5d8aa8" }}>Depot — start point</div>
+                <div style={{ fontWeight: 700, fontSize: "13px", color: "#1a5276" }}>{collectorStart.binId}</div>
+                <div style={{ fontSize: "11px", color: "#5d8aa8" }}>
+                  {collectorStart.binId === "Barangay Hall" ? "Depot — start point" : "Last collected bin"}
+                </div>
               </div>
             </div>
 
-            {/* Stops */}
-            {optimizedRoute.map((stop, index) => {
+            {fullPlannedRoute.map((stop, index) => {
               const isCompleted = completedStops.includes(stop.binId);
-              const isCurrent = routeStarted && index === currentStopIndex && !allDone;
-              const colors = isCompleted ? statusColors.normal : statusColors[stop.status] || statusColors.normal;
+              const isCurrent = stop.binId === orderedRoute[0]?.binId && !collectingBinId;
+              const isCollecting = stop.binId === collectingBinId;
+              const colors = statusColors[stop.status] || statusColors.normal;
 
               return (
                 <React.Fragment key={stop.binId}>
-                  <StepConnector distance={stop.distanceFromPrev} />
+                  <StepConnector distance={stop.distanceFromPrev} active={routeStarted && (isCurrent || isCollecting)} />
 
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: "12px",
-                    background: isCompleted ? "#f0faf5" : isCurrent ? "#fef9e7" : colors.bg,
-                    borderRadius: "10px", padding: "12px 16px",
-                    border: `1.5px solid ${isCurrent ? "#f39c12" : isCompleted ? "#a9dfbf" : colors.border}`,
-                    transition: "all 0.3s",
-                    opacity: isCompleted ? 0.75 : 1
-                  }}>
-                    {/* Step badge */}
-                    <div style={{
-                      width: "28px", height: "28px", borderRadius: "50%",
-                      background: isCompleted ? "#1e8449" : isCurrent ? "#f39c12" : colors.border,
-                      color: "white", display: "flex", alignItems: "center",
-                      justifyContent: "center", fontSize: "12px", fontWeight: 700,
-                      flexShrink: 0
-                    }}>
-                      {isCompleted ? "✓" : index + 1}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      background: isCompleted ? "#d5f5e3" : isCurrent || isCollecting ? "#fff5f5" : colors.bg,
+                      borderRadius: "10px",
+                      padding: "12px 16px",
+                      border: `1.5px solid ${isCompleted ? "#1e8449" : isCurrent || isCollecting ? "#e74c3c" : colors.border}`,
+                      opacity: isCompleted ? 0.8 : 1,
+                      transition: "all 0.3s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "50%",
+                        background: isCompleted ? "#1e8449" : isCurrent || isCollecting ? "#e74c3c" : colors.border,
+                        color: "white",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {index + 1}
                     </div>
 
-                    {/* Info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                         <span style={{ fontWeight: 700, fontSize: "14px", color: "#1a1a1a" }}>{stop.binId}</span>
                         <span style={{ fontSize: "11px", color: "#888" }}>{stop.zone}</span>
-                        {isCurrent && (
-                          <span style={{
-                            background: "#f39c12", color: "white",
-                            borderRadius: "6px", padding: "2px 8px",
-                            fontSize: "10px", fontWeight: 700
-                          }}>CURRENT STOP</span>
-                        )}
-                        {isCompleted && (
-                          <span style={{
-                            background: "#1e8449", color: "white",
-                            borderRadius: "6px", padding: "2px 8px",
-                            fontSize: "10px", fontWeight: 700
-                          }}>COLLECTED</span>
+                        {(isCurrent || isCollecting || isCompleted) && (
+                          <span
+                            style={{
+                              background: isCompleted ? "#1e8449" : "#e74c3c",
+                              color: "white",
+                              borderRadius: "6px",
+                              padding: "2px 8px",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {isCompleted ? "COLLECTED" : isCollecting ? "COLLECTING" : routeStarted ? "NEXT STOP" : "FIRST STOP"}
+                          </span>
                         )}
                       </div>
 
-                      {/* Fill bar */}
                       <div style={{ marginTop: "6px", display: "flex", alignItems: "center", gap: "8px" }}>
                         <div style={{ flex: 1, background: "#eee", borderRadius: "4px", height: "6px", maxWidth: "160px" }}>
-                          <div style={{
-                            width: `${stop.fillLevel}%`,
-                            background: isCompleted ? "#1e8449" : colors.border,
-                            height: "6px", borderRadius: "4px",
-                            transition: "width 0.4s"
-                          }} />
+                          <div
+                            style={{
+                              width: `${Number(stop.fillLevel) || 0}%`,
+                              background: isCompleted ? "#1e8449" : isCollecting ? "#e74c3c" : colors.border,
+                              height: "6px",
+                              borderRadius: "4px",
+                              transition: "width 0.12s linear",
+                            }}
+                          />
                         </div>
-                        <span style={{ fontSize: "12px", fontWeight: 700, color: isCompleted ? "#1e8449" : colors.text }}>
-                          {stop.fillLevel}%
+                        <span style={{ fontSize: "12px", fontWeight: 700, color: isCompleted ? "#1e8449" : isCollecting ? "#e74c3c" : colors.text }}>
+                          {Number(stop.fillLevel) || 0}%
                         </span>
                       </div>
                     </div>
-
-                    {/* Collect button — only current stop */}
-                    {isCurrent && (
-                      <button
-                        onClick={() => handleCollect(stop)}
-                        style={{
-                          background: "#1e8449", color: "white",
-                          border: "none", borderRadius: "8px",
-                          padding: "8px 16px", fontSize: "12px",
-                          cursor: "pointer", fontWeight: 700,
-                          whiteSpace: "nowrap", flexShrink: 0
-                        }}
-                      >
-                        ✓ Mark Collected
-                      </button>
-                    )}
                   </div>
                 </React.Fragment>
               );
             })}
 
-            {/* Return connector */}
-            <StepConnector distance={returnDist} />
-
-            {/* Return to Depot */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: "12px",
-              background: "#eaf4fb", borderRadius: "10px",
-              padding: "12px 16px", border: "1px solid #d6eaf8"
-            }}>
-              <div style={{
-                width: "28px", height: "28px", borderRadius: "50%",
-                background: "#2e86c1", display: "flex", alignItems: "center",
-                justifyContent: "center", flexShrink: 0, fontSize: "14px"
-              }}>🏠</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#1a5276" }}>Barangay Hall</div>
-                <div style={{ fontSize: "11px", color: "#5d8aa8" }}>Return to depot</div>
-              </div>
-            </div>
-
-            {/* Completion */}
-            {allDone && (
-              <div style={{
-                marginTop: "16px", background: "#d5f5e3",
-                border: "1px solid #1e8449", borderRadius: "10px",
-                padding: "16px", textAlign: "center"
-              }}>
+            {routeComplete && (
+              <div
+                style={{
+                  marginTop: "16px",
+                  background: "#d5f5e3",
+                  border: "1px solid #1e8449",
+                  borderRadius: "10px",
+                  padding: "16px",
+                  textAlign: "center",
+                }}
+              >
                 <div style={{ fontSize: "28px", marginBottom: "6px" }}>🎉</div>
                 <div style={{ fontWeight: 700, color: "#1e8449", fontSize: "15px" }}>Route Complete!</div>
-                <div style={{ color: "#555", fontSize: "13px", margin: "4px 0 12px" }}>
-                  All {priorityBins.length} priority bins collected • {totalDistance.toFixed(2)} km total
+                <div style={{ color: "#555", fontSize: "13px", margin: "4px 0 0" }}>
+                  All scheduled priority bins have been collected and drained to 0%.
                 </div>
-                <button
-                  onClick={() => { setRouteStarted(false); setCompletedStops([]); }}
-                  style={{
-                    background: "#1e8449", color: "white",
-                    border: "none", borderRadius: "8px",
-                    padding: "8px 24px", fontSize: "13px",
-                    cursor: "pointer", fontWeight: 700
-                  }}
-                >
-                  Done
-                </button>
               </div>
             )}
           </div>
