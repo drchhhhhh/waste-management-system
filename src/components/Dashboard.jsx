@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../firebase/config";
-import { collection, onSnapshot, doc, updateDoc, writeBatch } from "firebase/firestore";
+// ⭐ ADDED addDoc to save records to the new history database
+import { collection, onSnapshot, doc, updateDoc, writeBatch, addDoc } from "firebase/firestore";
 import BinCard from "./BinCard";
 import Map from "./Map";
 import RoutePanel from "./RoutePanel";
@@ -136,7 +137,6 @@ function Dashboard() {
     setSimulationPaused(routeStarted);
   }, [routeStarted]);
 
-  // UI Master array includes Landfill natively
   const extendedBins = useMemo(() => [...bins, LANDFILL], [bins]);
   const priorityBinsCount = bins.filter(isPriority).length;
   const priorityBinIdsStr = useMemo(() => {
@@ -158,7 +158,6 @@ function Dashboard() {
 
       const shortestRoadPath = await optimizeRouteByRoad(priorityBins, LANDFILL);
       
-      // Sequence natively ends at the Landfill
       const fullSequenceIds = [...shortestRoadPath.map(b => b.binId), LANDFILL.binId];
       if (isMounted) setPreviewRouteBinIds(fullSequenceIds);
 
@@ -261,13 +260,24 @@ function Dashboard() {
     }
 
     if (completedStops.includes(bin.binId)) return;
+
+    // ⭐ NEW: Log to history collection exactly when the truck arrives at the bin
+    const activeBin = bins.find((b) => b.binId === bin.binId);
+    if (activeBin) {
+      addDoc(collection(db, "collectionHistory"), {
+        binId: activeBin.binId,
+        zone: activeBin.zone,
+        fillLevel: activeBin.fillLevel,
+        timestamp: new Date().toISOString()
+      }).catch(console.error);
+    }
+
     setCollectingBinId(bin.binId);
-  }, [routeStarted, collectingBinId, completedStops]);
+  }, [routeStarted, collectingBinId, completedStops, bins]);
 
   useEffect(() => {
     if (!routeStarted || !collectingBinId) return;
 
-    // Prevent loop errors if it lands on Landfill
     if (collectingBinId === LANDFILL.binId) return;
 
     const activeBin = bins.find((bin) => bin.binId === collectingBinId);
@@ -428,6 +438,7 @@ function Dashboard() {
           <RoutePanel bins={extendedBins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
         </div>
 
+        {/* The updated Historic Collection Log */}
         <CollectionLog />
 
         <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
