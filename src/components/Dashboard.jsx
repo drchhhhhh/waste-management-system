@@ -356,117 +356,127 @@ function Dashboard() {
     return lookup;
   }, [activeRouteBinIds, completedStops, collectingBinId]);
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-color)", position: "relative" }}>
-      {showDispatchPrompt && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
-          <div style={{ background: "white", padding: "30px", borderRadius: "16px", maxWidth: "420px", textAlign: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
-            <div style={{ fontSize: "50px", marginBottom: "15px" }}>🚨</div>
-            <h2 style={{ margin: "0 0 10px 0", color: "#c0392b", fontSize: "22px" }}>Dispatch Recommended</h2>
-            <p style={{ color: "#555", marginBottom: "25px", fontSize: "15px", lineHeight: "1.5" }}>
-              The system predicts <strong>{priorityBinsCount} bins</strong> require attention, reaching the operational threshold. Do you want to dispatch the collection truck now?
-            </p>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-              <button onClick={handleStartRoute} style={{ background: "#27ae60", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
-                ✅ Yes, Dispatch Route
-              </button>
-              <button onClick={() => { setShowDispatchPrompt(false); setHasIgnoredDispatch(true); }} style={{ background: "#e74c3c", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
-                ❌ No, Ignore for Now
-              </button>
-            </div>
+return (
+  <div style={{ minHeight: "100vh", background: "var(--bg-color)", position: "relative" }}>
+    {showDispatchPrompt && (
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+        <div style={{ background: "var(--surface-raised)", border: "1px solid var(--surface-border)", padding: "30px", borderRadius: "var(--border-radius)", maxWidth: "420px", textAlign: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: "50px", marginBottom: "15px" }}>🚨</div>
+          <h2 style={{ margin: "0 0 10px 0", color: "#f87171", fontSize: "22px", fontFamily: "'Syne', sans-serif" }}>Dispatch Recommended</h2>
+          <p style={{ color: "var(--text-muted)", marginBottom: "25px", fontSize: "15px", lineHeight: "1.5" }}>
+            The system predicts <strong style={{ color: "var(--text-main)" }}>{priorityBinsCount} bins</strong> require attention, reaching the operational threshold. Do you want to dispatch the collection truck now?
+          </p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button onClick={handleStartRoute} style={{ background: "var(--primary-color)", color: "white", border: "none", padding: "12px 20px", borderRadius: "var(--border-radius-sm)", fontWeight: 700, cursor: "pointer", fontSize: "14px", transition: "var(--transition)" }} onMouseOver={(e) => e.currentTarget.style.background = "var(--primary-hover)"} onMouseOut={(e) => e.currentTarget.style.background = "var(--primary-color)"}>
+              ✅ Yes, Dispatch Route
+            </button>
+            <button onClick={() => { setShowDispatchPrompt(false); setHasIgnoredDispatch(true); }} style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)", padding: "12px 20px", borderRadius: "var(--border-radius-sm)", fontWeight: 700, cursor: "pointer", fontSize: "14px", transition: "var(--transition)" }} onMouseOver={(e) => e.currentTarget.style.background = "rgba(239,68,68,0.2)"} onMouseOut={(e) => e.currentTarget.style.background = "rgba(239,68,68,0.12)"}>
+              ❌ No, Ignore for Now
+            </button>
           </div>
-        </div>
-      )}
-
-      <div style={{background: "var(--surface-raised)", borderBottom: "1px solid var(--surface-border)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 2px 8px rgba(0,0,0,0.2)", gap: "16px", flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontSize: "20px", fontWeight: 700 }}>🗑️ Waste Collection Monitoring System</h1>
-          <p style={{ fontSize: "13px", opacity: 0.85 }}>Brgy. Palloocan West, Batangas City (Smart Advisor Dispatch)</p>
         </div>
       </div>
+    )}
 
-      <div style={{ padding: "20px 24px" }}>
-        
-        <div style={{ background: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#fadbd8" : (hasIgnoredDispatch ? "#fdf2e9" : "#e8f8f5"), border: `2px solid ${priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#e67e22" : "#17a589")}`, borderRadius: "12px", padding: "12px 20px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontWeight: "bold", color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#922b21" : (hasIgnoredDispatch ? "#ba4a00" : "#0e6655"), fontSize: "15px" }}>
-              {hasIgnoredDispatch ? "⏸️ Dispatch Paused by Admin" : "📊 Smart Advisor Volume Monitor"}
-            </div>
-            <div style={{ color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#d35400" : "#117a65"), fontSize: "13px", marginTop: "2px" }}>
-              {hasIgnoredDispatch 
-                ? "You ignored the prompt. The system will prompt again when the next day is simulated or data changes." 
-                : `System advises dispatch when ${VOLUME_THRESHOLD} bins require collection.`}
-            </div>
-          </div>
-          <div style={{ fontSize: "22px", fontWeight: 900, color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#e67e22" : "#17a589") }}>
-            {priorityBinsCount} / {VOLUME_THRESHOLD}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
-            {[
-              { label: "Total Bins", value: bins.length, color: "var(--text-accent)", bg: "var(--surface-raised)" },
-              { label: "Critical", value: critical, color: "#ef4444", bg: "rgba(239,68,68,0.1)" },
-              { label: "Warning", value: warning, color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
-              { label: "Normal", value: normal, color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
-              { label: "Est. Route Distance", value: formatDistance(totalRouteDistance), color: "var(--text-accent)", bg: "rgba(34,197,94,0.07)" }
-            ].map((card) => (
-              <div key={card.label} style={{ background: card.bg, borderLeft: `4px solid ${card.color}`, borderRadius: "var(--border-radius-sm)", padding: "14px 20px", flex: "1", minWidth: "140px", boxShadow: "var(--box-shadow)" }}>
-                <div style={{ fontSize: "28px", fontWeight: 700, color: card.color, fontFamily: "'Syne', sans-serif" }}>{card.value}</div>
-                <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>{card.label}</div>
-              </div>
-            ))}
-          </div>
-
-        <div style={{ background: "white", borderRadius: "12px", padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,0.07)", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 700, color: "#1a5276", fontSize: "14px" }}>Predictive Controls</div>
-            <div style={{ fontSize: "12px", color: "#666" }}>Simulate time passing to predict waste generation rates.</div>
-          </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <button onClick={handleAdvanceOneDay} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", color: "white", border: "none", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>📅 Advance Time (1 Day)</button>
-            <button onClick={handleRandomizeBins} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "#ffffff", color: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", border: "1px solid #b7c9d8", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>🔀 Seed Random Bins</button>
-            <button onClick={handleResetSimulation} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "#ffffff", color: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", border: "1px solid #b7c9d8", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>Reset all to 0%</button>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
-          <Map bins={extendedBins} completedStops={completedStops} routeVersion={routeVersion} routeStarted={routeStarted} collectingBinId={collectingBinId} routeBinIds={activeRouteBinIds} onArriveAtStop={handleArriveAtStop} />
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
-          <RoutePanel bins={extendedBins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
-        </div>
-
-        {/* The updated Historic Collection Log */}
-        <CollectionLog />
-
-        <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
-          {zones.map((zone) => (
-            <button key={zone} onClick={() => setSelectedZone(zone)} style={{ padding: "8px 18px", borderRadius: "20px", border: "none", cursor: "pointer", background: selectedZone === zone ? "#2e86c1" : "#dce9f5", color: selectedZone === zone ? "white" : "#2e86c1", fontWeight: 600, fontSize: "13px", transition: "all 0.2s" }}>{zone}</button>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
-          {filteredBins.map((bin) => {
-            const routeData = routeLookup[bin.binId] || {};
-            const isPredictiveCatch = isPriority(bin) && Number(bin.fillLevel) < 70;
-            
-            return (
-              <div key={bin.binId} style={{position: 'relative'}}>
-                {isPredictiveCatch && (
-                  <div style={{ position: "absolute", top: -8, right: -8, background: "#f39c12", color: "white", fontSize: "10px", padding: "3px 6px", borderRadius: "10px", fontWeight: "bold", zIndex: 10 }}>
-                    ⚠️ Overflow Predicted
-                  </div>
-                )}
-                <BinCard bin={bin} routeOrder={routeData.routeOrder} isCurrentDestination={routeData.isCurrentDestination} isCollecting={routeData.isCollecting} isCompleted={completedStops.includes(bin.binId)} />
-              </div>
-            );
-          })}
-        </div>
+    <div style={{ background: "var(--surface-raised)", borderBottom: "1px solid var(--surface-border)", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "var(--box-shadow)", gap: "16px", flexWrap: "wrap" }}>
+      <div>
+        <h1 style={{ fontSize: "30px", fontWeight: 700, color: "var(--text-main)", fontFamily: "'Syne', sans-serif" }}>🗑️ EcoRoute</h1>
+        <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>Brgy. Palloocan West, Batangas City </p>
       </div>
     </div>
-  );
+
+    <div style={{ padding: "20px 24px" }}>
+
+      {/* Smart Advisor Banner */}
+      {(() => {
+        const isCritical = priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch;
+        const isPaused = hasIgnoredDispatch;
+        const bannerColor = isCritical ? "#ef4444" : isPaused ? "#f59e0b" : "#22c55e";
+        const bannerBg = isCritical ? "rgba(239,68,68,0.08)" : isPaused ? "rgba(245,158,11,0.08)" : "rgba(34,197,94,0.08)";
+        return (
+          <div style={{ background: bannerBg, border: `1px solid ${bannerColor}33`, borderLeft: `4px solid ${bannerColor}`, borderRadius: "var(--border-radius-sm)", padding: "12px 20px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontWeight: 700, color: bannerColor, fontSize: "15px" }}>
+                {isPaused ? "⏸️ Dispatch Paused by Admin" : "📊 Smart Advisor Volume Monitor"}
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: "13px", marginTop: "2px" }}>
+                {isPaused
+                  ? "You ignored the prompt. The system will prompt again when the next day is simulated or data changes."
+                  : `System advises dispatch when ${VOLUME_THRESHOLD} bins require collection.`}
+              </div>
+            </div>
+            <div style={{ fontSize: "22px", fontWeight: 900, color: bannerColor, fontFamily: "'Syne', sans-serif", flexShrink: 0 }}>
+              {priorityBinsCount} / {VOLUME_THRESHOLD}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Stat Cards */}
+      <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
+        {[
+          { label: "Total Bins", value: bins.length, color: "var(--text-accent)", bg: "var(--surface-raised)" },
+          { label: "Critical", value: critical, color: "#ef4444", bg: "rgba(239,68,68,0.1)" },
+          { label: "Warning", value: warning, color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
+          { label: "Normal", value: normal, color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
+          ].map((card) => (
+          <div key={card.label} style={{ background: card.bg, borderLeft: `4px solid ${card.color}`, borderRadius: "var(--border-radius-sm)", padding: "14px 20px", flex: "1", minWidth: "140px", boxShadow: "var(--box-shadow)" }}>
+            <div style={{ fontSize: "28px", fontWeight: 700, color: card.color, fontFamily: "'Syne', sans-serif" }}>{card.value}</div>
+            <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>{card.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Predictive Controls */}
+      <div style={{ background: "var(--surface-raised)", border: "1px solid var(--surface-border)", borderRadius: "var(--border-radius-sm)", padding: "14px 16px", boxShadow: "var(--box-shadow)", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 700, color: "var(--text-main)", fontSize: "14px", fontFamily: "'Syne', sans-serif" }}>Predictive Controls</div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>Simulate time passing to predict waste generation rates.</div>
+        </div>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <button onClick={handleAdvanceOneDay} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: routeStarted || collectingBinId ? "rgba(255,255,255,0.05)" : "var(--primary-color)", color: routeStarted || collectingBinId ? "var(--text-muted)" : "white", border: "none", borderRadius: "var(--border-radius-sm)", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700, transition: "var(--transition)" }}>📅 Advance Time (1 Day)</button>
+          <button onClick={handleRandomizeBins} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "transparent", color: routeStarted || collectingBinId ? "var(--text-muted)" : "var(--primary-color)", border: `1px solid ${routeStarted || collectingBinId ? "var(--surface-border)" : "var(--primary-color)"}`, borderRadius: "var(--border-radius-sm)", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700, transition: "var(--transition)" }}>🔀 Seed Random Bins</button>
+          <button onClick={handleResetSimulation} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "transparent", color: routeStarted || collectingBinId ? "var(--text-muted)" : "var(--text-muted)", border: `1px solid var(--surface-border)`, borderRadius: "var(--border-radius-sm)", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700, transition: "var(--transition)" }}>Reset all to 0%</button>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: "20px" }}>
+        <Map bins={extendedBins} completedStops={completedStops} routeVersion={routeVersion} routeStarted={routeStarted} collectingBinId={collectingBinId} routeBinIds={activeRouteBinIds} onArriveAtStop={handleArriveAtStop} />
+      </div>
+
+      <div style={{ marginBottom: "20px" }}>
+        <RoutePanel bins={extendedBins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
+      </div>
+
+      <CollectionLog />
+
+      {/* Zone Filter */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "16px", marginTop: "24px", flexWrap: "wrap" }}>
+        {zones.map((zone) => (
+          <button key={zone} onClick={() => setSelectedZone(zone)} style={{ padding: "8px 18px", borderRadius: "99px", border: `1px solid ${selectedZone === zone ? "var(--primary-color)" : "var(--surface-border)"}`, cursor: "pointer", background: selectedZone === zone ? "var(--primary-color)" : "transparent", color: selectedZone === zone ? "white" : "var(--text-muted)", fontWeight: 600, fontSize: "13px", transition: "var(--transition)" }}>{zone}</button>
+        ))}
+      </div>
+
+      {/* Bin Cards Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
+        {filteredBins.map((bin) => {
+          const routeData = routeLookup[bin.binId] || {};
+          const isPredictiveCatch = isPriority(bin) && Number(bin.fillLevel) < 70;
+          return (
+            <div key={bin.binId} style={{ position: "relative" }}>
+              {isPredictiveCatch && (
+                <div style={{ position: "absolute", top: -8, right: -8, background: "rgba(245,158,11,0.15)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.35)", fontSize: "10px", padding: "3px 8px", borderRadius: "99px", fontWeight: 700, zIndex: 10 }}>
+                  ⚠️ Overflow Predicted
+                </div>
+              )}
+              <BinCard bin={bin} routeOrder={routeData.routeOrder} isCurrentDestination={routeData.isCurrentDestination} isCollecting={routeData.isCollecting} isCompleted={completedStops.includes(bin.binId)} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </div>
+);
 }
 
 export default Dashboard;
