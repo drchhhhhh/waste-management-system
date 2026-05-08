@@ -1,55 +1,19 @@
-import { db } from "../firebase/config";
-import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
-
-// Use the global window object to ensure absolute synchrony, 
-// destroying any chance of React hot-reloading creating ghost intervals.
-window.isSimulationPaused = window.isSimulationPaused || false;
-
+// We are exporting this so Dashboard.jsx doesn't crash, 
+// but it no longer needs to do anything since the background loop is gone.
 export const setSimulationPaused = (paused) => {
   window.isSimulationPaused = paused;
 };
 
 export const startSimulator = () => {
-  // If a simulator is already running in the background, kill it first.
-  if (window.binSimInterval) {
-    clearInterval(window.binSimInterval);
-  }
+  // The background interval that randomly increased bin percentages 
+  // every 5 seconds has been completely removed.
+  
+  // Bins will now be 100% FIXED and static. 
+  // They will only get new trash when you click "Randomize", 
+  // and they will only drain when you click "Start Route".
+  
+  console.log("Background waste accumulation is disabled. Bins are now fixed.");
 
-  window.binSimInterval = setInterval(async () => {
-    // STRICT FREEZE: If the truck is driving, absolutely do nothing.
-    if (window.isSimulationPaused) {
-      return; 
-    }
-
-    try {
-      const binsCollection = collection(db, "bins");
-      const snapshot = await getDocs(binsCollection);
-
-      snapshot.forEach(async (binDoc) => {
-        const binData = binDoc.data();
-
-        // Leave 0% bins or actively collecting bins alone
-        if (binData.fillLevel === 0 || binData.isCollecting === true) {
-          return;
-        }
-
-        const currentFill = binData.fillLevel || 0;
-        const newFill = Math.min(100, currentFill + Math.floor(Math.random() * 3) + 1);
-
-        const binRef = doc(db, "bins", binDoc.id);
-        await updateDoc(binRef, {
-          fillLevel: newFill,
-          status: newFill >= 90 ? "critical" : (newFill >= 70 ? "warning" : "normal"),
-          lastUpdated: new Date().toISOString()
-        });
-      });
-    } catch (error) {
-      console.error("Error in background bin simulation:", error);
-    }
-  }, 5000);
-
-  return () => {
-    clearInterval(window.binSimInterval);
-    window.binSimInterval = null;
-  };
+  // Return an empty cleanup function for App.js
+  return () => {};
 };

@@ -5,6 +5,7 @@ import L from "leaflet";
 
 const statusColor = { normal: "#1e8449", warning: "#d35400", critical: "#c0392b" };
 const DEPOT = { lat: 13.7572, lng: 121.0588, binId: "Barangay Hall", zone: "Depot" };
+const MAP_BOUNDS = [[13.7350, 121.0350], [13.7800, 121.0850]];
 
 function hasValidCoordinates(point) { return Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)); }
 function normalizePoint(point) { return { ...point, lat: Number(point.lat), lng: Number(point.lng) }; }
@@ -18,26 +19,6 @@ function getDistance(a, b) {
   const lat1 = (pointA.lat * Math.PI) / 180; const lat2 = (pointB.lat * Math.PI) / 180;
   const x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function optimizeRoute(bins, startPoint = DEPOT) {
-  const unvisited = bins.filter(hasValidCoordinates).map(normalizePoint);
-  const route = [];
-  let current = normalizePoint(startPoint);
-  while (unvisited.length > 0) {
-    let nearestIndex = 0; let nearestDistance = Infinity;
-    unvisited.forEach((bin, index) => {
-      const distance = getDistance(current, bin);
-      const currentNearest = unvisited[nearestIndex];
-      const isCloser = distance < nearestDistance;
-      const isTieButEarlierId = distance === nearestDistance && String(bin.binId).localeCompare(String(currentNearest?.binId || "")) < 0;
-      if (isCloser || isTieButEarlierId) { nearestDistance = distance; nearestIndex = index; }
-    });
-    const nearest = unvisited.splice(nearestIndex, 1)[0];
-    route.push({ ...nearest, distanceFromPrev: nearestDistance });
-    current = nearest;
-  }
-  return route;
 }
 
 function formatDistance(meters) {
@@ -137,9 +118,23 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
   useEffect(() => { completedAnimationKeysRef.current.clear(); }, [routeVersion]);
 
   useEffect(() => {
+    let isStale = false; 
+
     const collectorStart = getCollectorStart(bins, completedStops);
     const remaining = priorityBins.filter((bin) => !completedStops.includes(bin.binId));
-    const orderedRoute = attachSequentialDistances(remaining, collectorStart);
+    let orderedRoute = attachSequentialDistances(remaining, collectorStart);
+
+    // ⭐ NEW: Return to Depot Logic
+    // If the route is active but we ran out of bins, route the truck back to Barangay Hall!
+    if (orderedRoute.length === 0 && routeStarted && completedStops.length > 0) {
+      if (collectorStart.binId !== DEPOT.binId) {
+        orderedRoute = [{ ...DEPOT, distanceFromPrev: getDistance(collectorStart, DEPOT) }];
+      } else {
+        // If it's already sitting exactly at the depot, trigger arrival immediately
+        setTimeout(() => { if (!isStale && onArriveAtStop) onArriveAtStop(DEPOT); }, 100);
+      }
+    }
+
     const nextStop = orderedRoute[0] || null;
     const collectingBin = collectingBinId ? bins.find((bin) => bin.binId === collectingBinId && hasValidCoordinates(bin)) : null;
 
@@ -171,12 +166,16 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
     const activeCoords = [collectorStart, nextStop].map((p) => `${p.lng},${p.lat}`).join(";");
     const activeRouteUrl = `https://router.project-osrm.org/route/v1/driving/${activeCoords}?overview=full&geometries=geojson`;
 
-    Promise.all([fetch(fullRouteUrl).then((res) => res.json()), fetch(activeRouteUrl).then((res) => res.json())])
-      .then(([fullData, activeData]) => {
-        if (!fullData.routes || fullData.routes.length === 0) return;
+    Promise.all([
+      fetch(fullRouteUrl).then((res) => res.json()).catch(() => null), 
+      fetch(activeRouteUrl).then((res) => res.json()).catch(() => null)
+    ]).then(([fullData, activeData]) => {
+        if (isStale) return; 
+
+        if (!fullData || !fullData.routes || fullData.routes.length === 0) return;
 
         const fullGeojson = fullData.routes[0].geometry;
-        const activeGeojson = activeData.routes?.[0]?.geometry;
+        const activeGeojson = activeData?.routes?.[0]?.geometry;
 
         const fullRouteLine = L.geoJSON(fullGeojson, { style: { color: "#7f8c8d", weight: 5, opacity: 0.65 } }).addTo(map);
         routeLineRef.current.push(fullRouteLine);
@@ -199,7 +198,9 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
             const animationDuration = Math.max(5000, Math.min(15000, distanceToNext * 15));
             const startTime = performance.now();
+            
             const animateCollector = (now) => {
+              if (isStale) return; 
               const elapsed = now - startTime;
               const progress = Math.min(elapsed / animationDuration, 1);
               onCollectorMove(getPointAlongRoute(activeRouteCoordinates, progress));
@@ -220,6 +221,9 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
         }
 
         orderedRoute.forEach((bin, index) => {
+          // ⭐ NEW: We don't want to draw a numbered circle over the Barangay Hall when returning.
+          if (bin.binId === DEPOT.binId) return; 
+
           const isNext = index === 0;
           const icon = L.divIcon({
             className: "",
@@ -241,7 +245,12 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
       .catch((err) => console.error("OSRM error:", err));
 
     return () => {
+      isStale = true; 
       if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; }
+      routeLineRef.current.forEach((layer) => map.removeLayer(layer));
+      routeLineRef.current = [];
+      markersRef.current.forEach((m) => map.removeLayer(m));
+      markersRef.current = [];
     };
   }, [ map, priorityBins.map(b => b.binId).join(','), completedStops.length, routeVersion, routeStarted, collectingBinId, onCollectorMove, onRouteInfoChange, onArriveAtStop ]);
 
@@ -262,8 +271,7 @@ function Map({ bins, completedStops = [], routeVersion = 0, routeStarted = false
 
   const priorityBins = useMemo(() => {
     if (routeBinIds.length > 0) return orderBinsByRouteIds(bins, routeBinIds);
-    // Restored >= 70 threshold for route map preview
-    return optimizeRoute(bins.filter((bin) => Number(bin.fillLevel) >= 70 && hasValidCoordinates(bin)), DEPOT);
+    return []; 
   }, [bins, routeBinIds.join(",")]);
 
   const collectorStart = useMemo(() => getCollectorStart(bins, completedStops), [bins, completedStops]);
@@ -292,7 +300,7 @@ function Map({ bins, completedStops = [], routeVersion = 0, routeStarted = false
           </div>
         ))}
       </div>
-      <MapContainer center={[DEPOT.lat, DEPOT.lng]} zoom={16} style={{ height: "420px", width: "100%" }}>
+      <MapContainer center={[DEPOT.lat, DEPOT.lng]} zoom={16} minZoom={14} scrollWheelZoom={false} maxBounds={MAP_BOUNDS} maxBoundsViscosity={1.0} style={{ height: "420px", width: "100%" }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
         <BinMarkers bins={bins} priorityBinIds={priorityBinIds} />
         {priorityBins.length > 0 && (
