@@ -1,124 +1,126 @@
 import React from "react";
 
-// Updated to use a modern, subtle background but inherit our strong CSS variable colors for borders/text
-const statusColor = {
-  normal: { bg: "#d1fae5", border: "var(--status-empty)", text: "var(--primary-hover)" },
-  warning: { bg: "#fef3c7", border: "var(--status-half)", text: "#d97706" },
-  critical: { bg: "#fee2e2", border: "var(--status-full)", text: "var(--status-full)" },
+const statusConfig = {
+  normal:   { bg: "rgba(34,197,94,0.1)",   border: "var(--status-empty)", text: "#4ade80",  dot: "#22c55e" },
+  warning:  { bg: "rgba(245,158,11,0.1)",  border: "var(--status-half)",  text: "#fbbf24",  dot: "#f59e0b" },
+  critical: { bg: "rgba(239,68,68,0.1)",   border: "var(--status-full)",  text: "#f87171",  dot: "#ef4444" },
 };
 
 function BinCard({ bin, routeOrder, isCurrentDestination, isCollecting, isCompleted }) {
-  const colors = statusColor[bin.status] || statusColor.normal;
-  const time = bin.lastUpdated ? new Date(bin.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
+  const colors = statusConfig[bin.status] || statusConfig.normal;
+  const time = bin.lastUpdated
+    ? new Date(bin.lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "N/A";
 
-  // Determine the active accent color based on the truck's interaction
-  const activeBorderColor = isCollecting || isCurrentDestination ? "var(--status-full)" : isCompleted ? "var(--status-empty)" : colors.border;
+  const activeBorderColor =
+    isCollecting || isCurrentDestination
+      ? "var(--status-full)"
+      : isCompleted
+      ? "var(--status-empty)"
+      : colors.border;
+
+  const cardStyle = {
+    background: "var(--surface-raised)",
+    borderRadius: "var(--border-radius)",
+    padding: "20px",
+    border: `1px solid ${activeBorderColor}33`,  /* 20% opacity border */
+    borderLeft: `4px solid ${activeBorderColor}`,
+    boxShadow:
+      isCollecting || isCurrentDestination
+        ? "0 0 20px rgba(239,68,68,0.15), var(--box-shadow)"
+        : "var(--box-shadow)",
+    opacity: isCompleted ? 0.55 : 1,
+    transition: "var(--transition)",
+  };
 
   return (
-    <div
-      style={{
-        background: "var(--surface-color)",
-        borderRadius: "var(--border-radius)",
-        padding: "20px",
-        borderLeft: `6px solid ${activeBorderColor}`,
-        boxShadow: isCollecting || isCurrentDestination ? "0 4px 12px rgba(239, 68, 68, 0.15)" : "var(--box-shadow)",
-        opacity: isCompleted ? 0.65 : 1, // Make completed bins fade back more cleanly
-        transition: "var(--transition)"
-      }}
-    >
-      {/* Header Area: Bin ID and Status Pill */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-        <span style={{ fontWeight: 700, fontSize: "16px", color: "var(--text-main)" }}>{bin.binId}</span>
+    <div style={cardStyle}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+        <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: "15px", color: "var(--text-main)", letterSpacing: "-0.01em" }}>
+          {bin.binId}
+        </span>
         <span
           style={{
             background: colors.bg,
             color: colors.text,
-            borderRadius: "9999px", // Pill shape
-            padding: "4px 12px",
-            fontSize: "11px",
+            borderRadius: "99px",
+            padding: "3px 10px",
+            fontSize: "10px",
             fontWeight: 700,
-            letterSpacing: "0.5px",
+            letterSpacing: "0.8px",
             textTransform: "uppercase",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
           }}
         >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: colors.dot, flexShrink: 0 }} />
           {bin.status}
         </span>
       </div>
 
-      {/* Zone Label */}
-      <div style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 16px", fontWeight: 500 }}>
+      {/* Zone */}
+      <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px", fontWeight: 500 }}>
         {bin.zone}
       </div>
 
-      {/* Dynamic Route Tags */}
+      {/* Route Tags */}
       {(routeOrder || isCurrentDestination || isCollecting || isCompleted) && (
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "14px" }}>
           {routeOrder && (
-            <span
-              style={{
-                background: isCollecting || isCurrentDestination ? "var(--status-full)" : "#f1f5f9",
-                color: isCollecting || isCurrentDestination ? "white" : "var(--text-muted)",
-                borderRadius: "6px",
-                padding: "4px 8px",
-                fontSize: "11px",
-                fontWeight: 600,
-              }}
-            >
+            <span style={{
+              background: isCollecting || isCurrentDestination ? "var(--status-full)" : "rgba(255,255,255,0.06)",
+              color: isCollecting || isCurrentDestination ? "white" : "var(--text-muted)",
+              borderRadius: "6px", padding: "3px 8px", fontSize: "11px", fontWeight: 600,
+            }}>
               Route #{routeOrder}
             </span>
           )}
           {(isCurrentDestination || isCollecting) && (
-            <span
-              style={{
-                background: "#fee2e2",
-                color: "var(--status-full)",
-                border: "1px solid #fca5a5",
-                borderRadius: "6px",
-                padding: "4px 8px",
-                fontSize: "11px",
-                fontWeight: 600,
-              }}
-            >
+            <span style={{
+              background: "rgba(239,68,68,0.12)",
+              color: "#f87171",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: "6px", padding: "3px 8px", fontSize: "11px", fontWeight: 600,
+            }}>
               {isCollecting ? "🚛 Collecting..." : "📍 Next Stop"}
             </span>
           )}
           {isCompleted && (
-            <span
-              style={{
-                background: "#d1fae5",
-                color: "var(--status-empty)",
-                borderRadius: "6px",
-                padding: "4px 8px",
-                fontSize: "11px",
-                fontWeight: 600,
-              }}
-            >
+            <span style={{
+              background: "rgba(34,197,94,0.12)",
+              color: "var(--status-empty)",
+              borderRadius: "6px", padding: "3px 8px", fontSize: "11px", fontWeight: 600,
+            }}>
               ✅ Collected
             </span>
           )}
         </div>
       )}
 
-      {/* Fill Level Progress Bar */}
-      <div style={{ background: "#f1f5f9", borderRadius: "12px", height: "12px", marginBottom: "8px", overflow: "hidden" }}>
+      {/* Fill Level Bar */}
+      <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: "99px", height: "8px", marginBottom: "10px", overflow: "hidden" }}>
         <div
           style={{
             width: `${bin.fillLevel}%`,
-            background: activeBorderColor,
+            background: `linear-gradient(90deg, ${activeBorderColor}88, ${activeBorderColor})`,
             height: "100%",
-            borderRadius: "12px",
-            transition: isCollecting ? "width 0.15s linear" : "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+            borderRadius: "99px",
+            transition: isCollecting ? "width 0.15s linear" : "width 0.6s cubic-bezier(0.4,0,0.2,1)",
+            boxShadow: `0 0 8px ${activeBorderColor}66`,
           }}
         />
       </div>
 
-      {/* Footer Area: Percentage and Timestamp */}
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", alignItems: "center" }}>
+      {/* Footer */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
         <span style={{ color: activeBorderColor, fontWeight: 700, fontSize: "14px" }}>
-          {bin.fillLevel}% Full
+          {bin.fillLevel}%
+          <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 500, marginLeft: "4px" }}>full</span>
         </span>
-        <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-          Updated: {time}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: "11px" }}>
+          {time}
         </span>
       </div>
     </div>
