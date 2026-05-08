@@ -117,6 +117,7 @@ function Dashboard() {
   const [completedStops, setCompletedStops] = useState([]);
   const [routeVersion, setRouteVersion] = useState(0);
   const [routeStarted, setRouteStarted] = useState(false);
+  const [showRouteCompleteModal, setShowRouteCompleteModal] = useState(false);
   const [routeBinIds, setRouteBinIds] = useState([]);
   const [previewRouteBinIds, setPreviewRouteBinIds] = useState([]);
   const [collectingBinId, setCollectingBinId] = useState(null);
@@ -255,7 +256,7 @@ function Dashboard() {
       setRouteStarted(false);
       setCompletedStops([]);
       setCollectingBinId(null);
-      alert("✅ Shift Complete! Truck has collected all bins, returned to the Landfill, and unloaded.");
+      setShowRouteCompleteModal(true); //
       return;
     }
 
@@ -378,12 +379,59 @@ return (
       </div>
     )}
 
-    <div style={{ background: "var(--surface-raised)", borderBottom: "1px solid var(--surface-border)", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "var(--box-shadow)", gap: "16px", flexWrap: "wrap" }}>
+    {showRouteCompleteModal && (
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+        <div style={{ background: "var(--surface-raised)", border: "1px solid var(--surface-border)", padding: "36px 30px", borderRadius: "var(--border-radius)", maxWidth: "420px", width: "90%", textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: "56px", marginBottom: "16px" }}>🎉</div>
+          <h2 style={{ margin: "0 0 10px 0", color: "var(--text-main)", fontSize: "22px", fontFamily: "'Syne', sans-serif", fontWeight: 700 }}>
+            Route Complete!
+          </h2>
+          <button
+            onClick={() => setShowRouteCompleteModal(false)}
+            style={{ background: "var(--primary-color)", color: "white", border: "none", padding: "12px 32px", borderRadius: "var(--border-radius-sm)", fontWeight: 700, fontSize: "14px", cursor: "pointer", transition: "var(--transition)", width: "100%" }}
+            onMouseOver={(e) => e.currentTarget.style.background = "var(--primary-hover)"}
+            onMouseOut={(e) => e.currentTarget.style.background = "var(--primary-color)"}
+          >
+            ✅ Dismiss
+          </button>
+        </div>
+      </div>
+    )}
+
+
+   <div style={{ background: "var(--surface-raised)", borderRadius:"var(--border-radius)", borderBottom: "1px solid var(--surface-border)", boxShadow: "var(--box-shadow-glow)" }}>
+  <div style={{ padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" }}>
+    
+    {/* Brand */}
+    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+      <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: "var(--primary-dim)", border: "1px solid rgba(34,197,94,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
+        ♻️
+      </div>
       <div>
-        <h1 style={{ fontSize: "30px", fontWeight: 700, color: "var(--text-main)", fontFamily: "'Syne', sans-serif" }}>🗑️ EcoRoute</h1>
-        <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>Brgy. Palloocan West, Batangas City </p>
+        <h1 style={{ fontSize: "20px", fontWeight: 800, color: "var(--text-main)", fontFamily: "'Syne', sans-serif", letterSpacing: "-0.02em", margin: 0, lineHeight: 1 }}>
+          EcoRoute
+        </h1>
+        <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px", fontWeight: 500, margin: "4px 0 0" }}>
+          Brgy. Palloocan West, Batangas City
+        </p>
       </div>
     </div>
+
+    {/* Status Pills */}
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "7px", background: "var(--primary-dim)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: "99px", padding: "6px 14px" }}>
+        <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--primary-color)", boxShadow: "0 0 6px var(--primary-color)" }} />
+        <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-accent)" }}>System Online</span>
+      </div>
+      <div style={{ background: "var(--surface-color)", border: "1px solid var(--surface-border)", borderRadius: "99px", padding: "6px 14px" }}>
+        <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
+          {new Date().toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+        </span>
+      </div>
+    </div>
+
+  </div>
+</div>
 
     <div style={{ padding: "20px 24px" }}>
 
