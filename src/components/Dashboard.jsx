@@ -356,34 +356,34 @@ function Dashboard() {
     return lookup;
   }, [activeRouteBinIds, completedStops, collectingBinId]);
 
-return (
-  <div style={{ 
-    minHeight: "100vh", 
-    background: "var(--bg-color)", 
-    position: "relative",
-    color: "var(--text-main)" 
-  }}>
-    {/* Navigation/Header */}
-    <div style={{ 
-      background: "var(--surface-raised)", 
-      color: "var(--text-main)", 
-      padding: "16px 24px", 
-      display: "flex", 
-      alignItems: "center", 
-      justifyContent: "space-between", 
-      borderBottom: "1px solid var(--surface-border)",
-      gap: "16px", 
-      flexWrap: "wrap" 
-    }}>
-      <div>
-        <h1 style={{ fontSize: "20px", fontWeight: 800, fontFamily: "'Syne', sans-serif", color: "var(--primary-color)" }}>
-          🗑️ Waste Collection Monitoring
-        </h1>
-        <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-          Smart Advisor Dispatch System
-        </p>
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-color)", position: "relative" }}>
+      {showDispatchPrompt && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+          <div style={{ background: "white", padding: "30px", borderRadius: "16px", maxWidth: "420px", textAlign: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: "50px", marginBottom: "15px" }}>🚨</div>
+            <h2 style={{ margin: "0 0 10px 0", color: "#c0392b", fontSize: "22px" }}>Dispatch Recommended</h2>
+            <p style={{ color: "#555", marginBottom: "25px", fontSize: "15px", lineHeight: "1.5" }}>
+              The system predicts <strong>{priorityBinsCount} bins</strong> require attention, reaching the operational threshold. Do you want to dispatch the collection truck now?
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <button onClick={handleStartRoute} style={{ background: "#27ae60", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
+                ✅ Yes, Dispatch Route
+              </button>
+              <button onClick={() => { setShowDispatchPrompt(false); setHasIgnoredDispatch(true); }} style={{ background: "#e74c3c", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
+                ❌ No, Ignore for Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{background: "var(--surface-raised)", borderBottom: "1px solid var(--surface-border)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 2px 8px rgba(0,0,0,0.2)", gap: "16px", flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: "20px", fontWeight: 700 }}>🗑️ Waste Collection Monitoring System</h1>
+          <p style={{ fontSize: "13px", opacity: 0.85 }}>Brgy. Palloocan West, Batangas City (Smart Advisor Dispatch)</p>
+        </div>
       </div>
-    </div>
 
       <div style={{ padding: "20px 24px" }}>
         
@@ -404,18 +404,19 @@ return (
         </div>
 
         <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
-          {[
-            { label: "Total Bins", value: bins.length, color: "var(--primary-color)" },
-            { label: "Critical", value: critical, color: "var(--status-full)" },
-            { label: "Warning", value: warning, color: "var(--status-half)" },
-            { label: "Normal", value: normal, color: "var(--status-empty)" }
-          ].map((card) => (
-            <div key={card.label} className="modern-card" style={{ flex: "1", minWidth: "140px", borderLeft: `4px solid ${card.color}` }}>
-              <div style={{ fontSize: "28px", fontWeight: 700, color: card.color }}>{card.value}</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px" }}>{card.label}</div>
-            </div>
-          ))}
-        </div>
+            {[
+              { label: "Total Bins", value: bins.length, color: "var(--text-accent)", bg: "var(--surface-raised)" },
+              { label: "Critical", value: critical, color: "#ef4444", bg: "rgba(239,68,68,0.1)" },
+              { label: "Warning", value: warning, color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
+              { label: "Normal", value: normal, color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
+              { label: "Est. Route Distance", value: formatDistance(totalRouteDistance), color: "var(--text-accent)", bg: "rgba(34,197,94,0.07)" }
+            ].map((card) => (
+              <div key={card.label} style={{ background: card.bg, borderLeft: `4px solid ${card.color}`, borderRadius: "var(--border-radius-sm)", padding: "14px 20px", flex: "1", minWidth: "140px", boxShadow: "var(--box-shadow)" }}>
+                <div style={{ fontSize: "28px", fontWeight: 700, color: card.color, fontFamily: "'Syne', sans-serif" }}>{card.value}</div>
+                <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>{card.label}</div>
+              </div>
+            ))}
+          </div>
 
         <div style={{ background: "white", borderRadius: "12px", padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,0.07)", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
           <div>
