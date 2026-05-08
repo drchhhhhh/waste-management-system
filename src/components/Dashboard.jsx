@@ -4,16 +4,28 @@ import { collection, onSnapshot, doc, updateDoc, writeBatch } from "firebase/fir
 import BinCard from "./BinCard";
 import Map from "./Map";
 import RoutePanel from "./RoutePanel";
-import CollectionLog from "./CollectionLog"; // Log imported here
+import CollectionLog from "./CollectionLog";
 import { setSimulationPaused } from "../simulator/binSimulator";
 
 const DEPOT = { lat: 13.7572, lng: 121.0588, binId: "Barangay Hall", zone: "Depot" };
 const VOLUME_THRESHOLD = 4; 
 
+// ⭐ NEW: This automatically converts any old "Zone X" in your Firestore into the new descriptive names
+function getUpdatedZoneName(oldZone) {
+  if (oldZone === "Zone 1") return "Commercial Zone";
+  if (oldZone === "Zone 2") return "Dense Residential Zone";
+  if (oldZone === "Zone 3") return "Standard Residential Zone";
+  if (oldZone === "Zone 4") return "Rural Zone";
+  return oldZone; 
+}
+
+// ⭐ UPDATED: Generation rates are now based on the new descriptive zone names
 function getDailyGenerationRate(zone) {
-  if (zone === "Zone 1") return 34; 
-  if (zone === "Zone 2") return 25; 
-  return 15; 
+  const currentZone = getUpdatedZoneName(zone);
+  if (currentZone === "Commercial Zone") return 34; // Fills very fast
+  if (currentZone === "Dense Residential Zone") return 25; // Fills fast
+  if (currentZone === "Standard Residential Zone") return 15; // Fills average
+  return 10; // Rural Zone - Fills slow
 }
 
 function isPriority(bin) {
@@ -47,7 +59,6 @@ function fallbackOptimizeRoute(bins, startPoint = DEPOT) {
   const unvisited = bins.filter(hasValidCoordinates).map(normalizePoint);
   const route = [];
   let current = normalizePoint(startPoint);
-
   while (unvisited.length > 0) {
     let nearestIndex = 0; let nearestDistance = Infinity;
     unvisited.forEach((bin, index) => {
@@ -158,7 +169,12 @@ function Dashboard() {
       const newFill = Math.min(100, currentFill + dailyGenerationRate); 
       
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { fillLevel: newFill, status: getStatusFromFillLevel(newFill), isCollecting: false });
+      batch.update(binRef, { 
+        fillLevel: newFill, 
+        status: getStatusFromFillLevel(newFill), 
+        isCollecting: false,
+        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
+      });
     });
     await batch.commit();
     setHasIgnoredDispatch(false); 
@@ -173,7 +189,12 @@ function Dashboard() {
     bins.forEach((bin) => {
       const fillLevel = Math.floor(Math.random() * 81) + 20; 
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { fillLevel, status: getStatusFromFillLevel(fillLevel), isCollecting: false });
+      batch.update(binRef, { 
+        fillLevel, 
+        status: getStatusFromFillLevel(fillLevel), 
+        isCollecting: false,
+        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
+      });
     });
     await batch.commit();
     
@@ -185,7 +206,12 @@ function Dashboard() {
     const batch = writeBatch(db);
     bins.forEach((bin) => {
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { fillLevel: 0, status: "normal", isCollecting: false });
+      batch.update(binRef, { 
+        fillLevel: 0, 
+        status: "normal", 
+        isCollecting: false,
+        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
+      });
     });
     await batch.commit();
     
@@ -244,7 +270,6 @@ function Dashboard() {
       setCompletedStops((prev) => (prev.includes(collectingBinId) ? prev : [...prev, collectingBinId]));
       setCollectingBinId(null);
       setRouteVersion((version) => version + 1);
-      // The timestamp is saved here!
       updateDoc(doc(db, "bins", activeBin.id), { fillLevel: 0, status: "normal", isCollecting: false, lastCollected: new Date().toISOString() }).catch(console.error);
       return;
     }
@@ -293,8 +318,12 @@ function Dashboard() {
     return () => { isMounted = false; };
   }, [bins, routeStarted, routeBinIds, completedStops]);
 
-  const zones = ["All", "Zone 1", "Zone 2", "Zone 3", "Zone 4"];
-  const filteredBins = selectedZone === "All" ? bins : bins.filter((bin) => bin.zone === selectedZone);
+  // ⭐ NEW: Updated the filter list to use the new names
+  const zones = ["All", "Commercial Zone", "Dense Residential Zone", "Standard Residential Zone", "Rural Zone"];
+  
+  // Also updated the filter logic to properly compare the newly updated names
+  const filteredBins = selectedZone === "All" ? bins : bins.filter((bin) => getUpdatedZoneName(bin.zone) === selectedZone);
+  
   const critical = bins.filter((bin) => bin.status === "critical").length;
   const warning = bins.filter((bin) => bin.status === "warning").length;
   const normal = bins.filter((bin) => bin.status === "normal").length;
@@ -396,7 +425,6 @@ function Dashboard() {
           <RoutePanel bins={bins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
         </div>
 
-        {/* ⭐ ADDED COLLECTION LOG BACK INTO THE LAYOUT */}
         <CollectionLog />
 
         <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
