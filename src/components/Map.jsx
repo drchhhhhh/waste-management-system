@@ -349,22 +349,26 @@ function Map({ bins, completedStops = [], routeVersion = 0, routeStarted = false
   }, [priorityBins.length, collectorStart]);
 
   return (
-    <div style={{ borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
-      <div style={{ background: "white", padding: "10px 16px", display: "flex", gap: "12px", alignItems: "center", borderBottom: "1px solid #eee", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: "13px", color: "#333" }}>Legend:</span>
-        {[{ color: "#1e8449", label: "Normal" }, { color: "#d35400", label: "Warning" }, { color: "#c0392b", label: "Critical" }, { color: "#7f8c8d", label: "Overall route" }, { color: "#e74c3c", label: "Current route" }, { color: "#8e44ad", label: "Sanitary Landfill" }].map((item) => (
+    <div style={{ borderRadius: "var(--border-radius)", overflow: "hidden", boxShadow: "var(--box-shadow)", border: "1px solid var(--surface-border)" }}>
+      <div style={{ background: "var(--surface-raised)", padding: "10px 16px", display: "flex", gap: "12px", alignItems: "center", borderBottom: "1px solid var(--surface-border)", flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, fontSize: "13px", color: "var(--text-muted)", letterSpacing: "0.05em", textTransform: "uppercase" }}>Legend:</span>
+        {[
+          { color: "#22c55e", label: "Normal" },
+          { color: "#f59e0b", label: "Warning" },
+          { color: "#ef4444", label: "Critical" },
+          { color: "var(--surface-border)", label: "Overall route" },
+          { color: "#ef4444", label: "Current route" },
+          { color: "#a78bfa", label: "Sanitary Landfill" },
+        ].map((item) => (
           <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <div style={{ width: "13px", height: "13px", borderRadius: "50%", background: item.color, flexShrink: 0 }} />
-            <span style={{ fontSize: "12px", color: "#555" }}>{item.label}</span>
+            <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{item.label}</span>
           </div>
         ))}
       </div>
-      
-      {/* Map explicitly mounts focused on the Barangay center so the local bins are clearly visible */}
+
       <MapContainer center={BRGY_CENTER} zoom={15} scrollWheelZoom={false} maxBoundsViscosity={1.0} style={{ height: "420px", width: "100%" }}>
-        
         <CameraController collectorPosition={collectorPosition} routeStarted={routeStarted} />
-        
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
         <BinMarkers bins={bins} priorityBinIds={priorityBinIds} />
         {priorityBins.length > 0 && (
