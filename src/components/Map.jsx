@@ -4,8 +4,15 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
 const statusColor = { normal: "#1e8449", warning: "#d35400", critical: "#c0392b" };
-const DEPOT = { lat: 13.7572, lng: 121.0588, binId: "Barangay Hall", zone: "Depot" };
-const MAP_BOUNDS = [[13.7350, 121.0350], [13.7800, 121.0850]];
+
+const LANDFILL = { lat: 13.74787, lng: 121.16597, binId: "Batangas City Sanitary Landfill", zone: "Disposal" };
+
+// We keep two sets of bounds: Local (for detailed bin viewing) and Expanded (for the Landfill trip)
+const LOCAL_BOUNDS = [[13.7350, 121.0350], [13.7800, 121.0850]];
+const EXPANDED_BOUNDS = [[13.7200, 121.0350], [13.7800, 121.1850]];
+
+// The geographic center of Brgy. Palloocan West
+const BRGY_CENTER = [13.7572, 121.0588]; 
 
 function hasValidCoordinates(point) { return Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)); }
 function normalizePoint(point) { return { ...point, lat: Number(point.lat), lng: Number(point.lng) }; }
@@ -21,15 +28,10 @@ function getDistance(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function formatDistance(meters) {
-  if (!Number.isFinite(meters)) return "--";
-  return meters < 1000 ? `${Math.round(meters)}m` : `${(meters / 1000).toFixed(1)}km`;
-}
-
 function latLngToObject(coord) { return { lat: coord[1], lng: coord[0] }; }
 
 function getPointAlongRoute(routeCoords, progress) {
-  if (!routeCoords || routeCoords.length === 0) return DEPOT;
+  if (!routeCoords || routeCoords.length === 0) return LANDFILL;
   if (routeCoords.length === 1) return latLngToObject(routeCoords[0]);
   const points = routeCoords.map(latLngToObject);
   const segmentDistances = [];
@@ -55,8 +57,9 @@ function getPointAlongRoute(routeCoords, progress) {
 
 function getCollectorStart(bins, completedStops) {
   const lastCompletedId = [...completedStops].reverse().find(Boolean);
+  if (lastCompletedId === LANDFILL.binId) return LANDFILL;
   const lastCompletedBin = bins.find((bin) => bin.binId === lastCompletedId && hasValidCoordinates(bin));
-  return lastCompletedBin ? normalizePoint(lastCompletedBin) : DEPOT;
+  return lastCompletedBin ? normalizePoint(lastCompletedBin) : LANDFILL;
 }
 
 function orderBinsByRouteIds(bins, routeBinIds = []) {
@@ -64,16 +67,67 @@ function orderBinsByRouteIds(bins, routeBinIds = []) {
     lookup[String(bin.binId)] = normalizePoint(bin);
     return lookup;
   }, {});
+  binById[LANDFILL.binId] = normalizePoint(LANDFILL);
   return routeBinIds.map((binId) => binById[String(binId)]).filter(Boolean);
 }
 
-function attachSequentialDistances(routeBins, startPoint = DEPOT) {
+function attachSequentialDistances(routeBins, startPoint = LANDFILL) {
   let current = normalizePoint(startPoint);
   return routeBins.map((bin) => {
     const distanceFromPrev = getDistance(current, bin);
     current = bin;
     return { ...bin, distanceFromPrev };
   });
+}
+
+// ⭐ UPDATED: Cinematic Camera Controller
+function CameraController({ collectorPosition, routeStarted }) {
+  const map = useMap();
+  const [isExpanded, setIsExpanded] = useState(false); // Map always starts locked to the barangay bins
+
+  useEffect(() => {
+    // Initial map state: Locked to the barangay so bins are highly detailed
+    map.setMaxBounds(LOCAL_BOUNDS);
+    map.setMinZoom(14);
+    map.flyTo(BRGY_CENTER, 15, { duration: 0 });
+  }, [map]);
+
+  useEffect(() => {
+    if (!routeStarted) {
+      if (isExpanded) {
+        // Once shift ends, lock camera back to the detailed local barangay view
+        map.setMinZoom(14);
+        map.setMaxBounds(LOCAL_BOUNDS);
+        map.flyTo(BRGY_CENTER, 15, { duration: 1.5 });
+        setIsExpanded(false);
+      }
+      return;
+    }
+
+    // Determine if the truck is outside the local barangay (heading to or from the Landfill)
+    const isFarEast = collectorPosition?.lng > 121.0800;
+    const needsExpandedView = isFarEast;
+
+    if (needsExpandedView && !isExpanded) {
+      // PHASE 1 & 4: Truck is leaving Landfill OR returning to Landfill -> Zoom Out!
+      map.setMaxBounds(EXPANDED_BOUNDS);
+      map.setMinZoom(12);
+      map.flyToBounds([
+        BRGY_CENTER, 
+        [LANDFILL.lat, LANDFILL.lng]
+      ], { padding: [40, 40], duration: 2.5 });
+      setIsExpanded(true);
+      
+    } else if (!needsExpandedView && isExpanded) {
+      // PHASE 2 & 3: Truck crosses into the barangay bounds -> Zoom In closely to follow it!
+      map.setMinZoom(14);
+      map.flyTo([collectorPosition?.lat || BRGY_CENTER[0], collectorPosition?.lng || BRGY_CENTER[1]], 15, { duration: 1.5 });
+      map.setMaxBounds(LOCAL_BOUNDS);
+      setIsExpanded(false);
+    }
+  }, [collectorPosition, routeStarted, isExpanded, map]);
+
+  return null;
 }
 
 function GarbageCollectorMarker({ position, nextStop }) {
@@ -94,7 +148,12 @@ function GarbageCollectorMarker({ position, nextStop }) {
   }, [map, position]);
   useEffect(() => {
     if (!position) return;
-    const popupContent = `<strong>Garbage Collector</strong><br/>Current position reflected on route<br/>${nextStop ? `Destination: <b>${nextStop.binId}</b>` : "No active destination"}`;
+    let destinationText = "No active destination";
+    if (nextStop) {
+        if (nextStop.binId === LANDFILL.binId) destinationText = `Destination: <b style="color: #8e44ad">Sanitary Landfill</b>`;
+        else destinationText = `Destination: <b>${nextStop.binId}</b>`;
+    }
+    const popupContent = `<strong>Garbage Collector</strong><br/>Current position reflected on route<br/>${destinationText}`;
     pulseRef.current?.setLatLng([position.lat, position.lng]);
     markerRef.current?.setLatLng([position.lat, position.lng]);
     markerRef.current?.bindPopup(popupContent);
@@ -124,26 +183,23 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
     const remaining = priorityBins.filter((bin) => !completedStops.includes(bin.binId));
     let orderedRoute = attachSequentialDistances(remaining, collectorStart);
 
-    // ⭐ NEW: Return to Depot Logic
-    // If the route is active but we ran out of bins, route the truck back to Barangay Hall!
+    // If active but no bins left, plot route back to Landfill
     if (orderedRoute.length === 0 && routeStarted && completedStops.length > 0) {
-      if (collectorStart.binId !== DEPOT.binId) {
-        orderedRoute = [{ ...DEPOT, distanceFromPrev: getDistance(collectorStart, DEPOT) }];
+      if (collectorStart.binId !== LANDFILL.binId) {
+        orderedRoute = [{ ...LANDFILL, distanceFromPrev: getDistance(collectorStart, LANDFILL) }];
       } else {
-        // If it's already sitting exactly at the depot, trigger arrival immediately
-        setTimeout(() => { if (!isStale && onArriveAtStop) onArriveAtStop(DEPOT); }, 100);
+        setTimeout(() => { if (!isStale && onArriveAtStop) onArriveAtStop(LANDFILL); }, 100);
       }
     }
 
     const nextStop = orderedRoute[0] || null;
-    const collectingBin = collectingBinId ? bins.find((bin) => bin.binId === collectingBinId && hasValidCoordinates(bin)) : null;
+    const actualCollectingPoint = collectingBinId ? normalizePoint(bins.find((bin) => bin.binId === collectingBinId && hasValidCoordinates(bin))) : null;
 
     const activeRouteKey = `${routeVersion}-${collectorStart.binId || `${collectorStart.lat},${collectorStart.lng}`}-${nextStop?.binId || 'none'}`;
 
-    if (collectingBin) {
-      const normalizedCollectingBin = normalizePoint(collectingBin);
-      onCollectorMove(normalizedCollectingBin);
-      onRouteInfoChange({ nextStop: normalizedCollectingBin, distanceToNext: 0 });
+    if (actualCollectingPoint) {
+      onCollectorMove(actualCollectingPoint);
+      onRouteInfoChange({ nextStop: actualCollectingPoint, distanceToNext: 0 });
       return; 
     }
 
@@ -196,7 +252,7 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
             onCollectorMove(nextStop);
           } else {
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-            const animationDuration = Math.max(5000, Math.min(15000, distanceToNext * 15));
+            const animationDuration = Math.max(5000, Math.min(25000, distanceToNext * 10));
             const startTime = performance.now();
             
             const animateCollector = (now) => {
@@ -221,8 +277,7 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
         }
 
         orderedRoute.forEach((bin, index) => {
-          // ⭐ NEW: We don't want to draw a numbered circle over the Barangay Hall when returning.
-          if (bin.binId === DEPOT.binId) return; 
+          if (bin.binId === LANDFILL.binId) return; 
 
           const isNext = index === 0;
           const icon = L.divIcon({
@@ -234,13 +289,15 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
           markersRef.current.push(marker);
         });
 
-        const depotIcon = L.divIcon({
+        // ⭐ The Barangay Hall Depot marker was completely removed from here. Only the Landfill remains.
+        const landfillIcon = L.divIcon({
           className: "",
-          html: `<div style="width: 38px; height: 38px; background: #1a5276; border: 3px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">🏛️</div>`,
+          html: `<div style="width: 38px; height: 38px; background: #8e44ad; border: 3px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">🏭</div>`,
           iconSize: [38, 38], iconAnchor: [19, 19],
         });
-        const depotMarker = L.marker([DEPOT.lat, DEPOT.lng], { icon: depotIcon }).addTo(map).bindPopup("<strong>Barangay Hall</strong><br/>Starting point");
-        markersRef.current.push(depotMarker);
+        const landfillMarker = L.marker([LANDFILL.lat, LANDFILL.lng], { icon: landfillIcon }).addTo(map).bindPopup("<strong>Batangas City Sanitary Landfill</strong><br/>Sitio Catmon, Brgy. San Jose Sico");
+        markersRef.current.push(landfillMarker);
+
       })
       .catch((err) => console.error("OSRM error:", err));
 
@@ -258,7 +315,9 @@ function RouteLayer({ bins, priorityBins, completedStops, routeVersion, routeSta
 }
 
 function BinMarkers({ bins, priorityBinIds }) {
-  return bins.filter((bin) => hasValidCoordinates(bin) && !priorityBinIds.includes(bin.binId)).map((bin) => (
+  return bins
+    .filter((bin) => hasValidCoordinates(bin) && !priorityBinIds.includes(bin.binId) && bin.binId !== LANDFILL.binId)
+    .map((bin) => (
       <CircleMarker key={`${bin.binId}-${bin.fillLevel}-${bin.status}`} center={[Number(bin.lat), Number(bin.lng)]} radius={10} fillColor={statusColor[bin.status] || "#888"} color="white" weight={2} fillOpacity={0.9} >
         <Popup><strong>{bin.binId}</strong><br />Zone: {bin.zone}<br />Fill Level: {bin.fillLevel}%<br />Status: {bin.status}</Popup>
       </CircleMarker>
@@ -266,7 +325,7 @@ function BinMarkers({ bins, priorityBinIds }) {
 }
 
 function Map({ bins, completedStops = [], routeVersion = 0, routeStarted = false, collectingBinId = null, routeBinIds = [], onArriveAtStop }) {
-  const [collectorPosition, setCollectorPosition] = useState(DEPOT);
+  const [collectorPosition, setCollectorPosition] = useState(LANDFILL);
   const [routeInfo, setRouteInfo] = useState({ nextStop: null, distanceToNext: null });
 
   const priorityBins = useMemo(() => {
@@ -293,14 +352,19 @@ function Map({ bins, completedStops = [], routeVersion = 0, routeStarted = false
     <div style={{ borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
       <div style={{ background: "white", padding: "10px 16px", display: "flex", gap: "12px", alignItems: "center", borderBottom: "1px solid #eee", flexWrap: "wrap" }}>
         <span style={{ fontWeight: 700, fontSize: "13px", color: "#333" }}>Legend:</span>
-        {[{ color: "#1e8449", label: "Normal (0–69%)" }, { color: "#d35400", label: "Warning (70–89%)" }, { color: "#c0392b", label: "Critical (90–100%)" }, { color: "#7f8c8d", label: "Overall route" }, { color: "#e74c3c", label: "Current route" }].map((item) => (
+        {[{ color: "#1e8449", label: "Normal" }, { color: "#d35400", label: "Warning" }, { color: "#c0392b", label: "Critical" }, { color: "#7f8c8d", label: "Overall route" }, { color: "#e74c3c", label: "Current route" }, { color: "#8e44ad", label: "Sanitary Landfill" }].map((item) => (
           <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <div style={{ width: "13px", height: "13px", borderRadius: "50%", background: item.color, flexShrink: 0 }} />
             <span style={{ fontSize: "12px", color: "#555" }}>{item.label}</span>
           </div>
         ))}
       </div>
-      <MapContainer center={[DEPOT.lat, DEPOT.lng]} zoom={16} minZoom={14} scrollWheelZoom={false} maxBounds={MAP_BOUNDS} maxBoundsViscosity={1.0} style={{ height: "420px", width: "100%" }}>
+      
+      {/* Map explicitly mounts focused on the Barangay center so the local bins are clearly visible */}
+      <MapContainer center={BRGY_CENTER} zoom={15} scrollWheelZoom={false} maxBoundsViscosity={1.0} style={{ height: "420px", width: "100%" }}>
+        
+        <CameraController collectorPosition={collectorPosition} routeStarted={routeStarted} />
+        
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
         <BinMarkers bins={bins} priorityBinIds={priorityBinIds} />
         {priorityBins.length > 0 && (

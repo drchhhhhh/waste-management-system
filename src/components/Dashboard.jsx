@@ -7,10 +7,9 @@ import RoutePanel from "./RoutePanel";
 import CollectionLog from "./CollectionLog";
 import { setSimulationPaused } from "../simulator/binSimulator";
 
-const DEPOT = { lat: 13.7572, lng: 121.0588, binId: "Barangay Hall", zone: "Depot" };
+const LANDFILL = { lat: 13.74787, lng: 121.16597, binId: "Batangas City Sanitary Landfill", zone: "Disposal", fillLevel: 0, status: "normal" };
 const VOLUME_THRESHOLD = 4; 
 
-// ⭐ NEW: This automatically converts any old "Zone X" in your Firestore into the new descriptive names
 function getUpdatedZoneName(oldZone) {
   if (oldZone === "Zone 1") return "Commercial Zone";
   if (oldZone === "Zone 2") return "Dense Residential Zone";
@@ -19,13 +18,12 @@ function getUpdatedZoneName(oldZone) {
   return oldZone; 
 }
 
-// ⭐ UPDATED: Generation rates are now based on the new descriptive zone names
 function getDailyGenerationRate(zone) {
   const currentZone = getUpdatedZoneName(zone);
-  if (currentZone === "Commercial Zone") return 34; // Fills very fast
-  if (currentZone === "Dense Residential Zone") return 25; // Fills fast
-  if (currentZone === "Standard Residential Zone") return 15; // Fills average
-  return 10; // Rural Zone - Fills slow
+  if (currentZone === "Commercial Zone") return 34; 
+  if (currentZone === "Dense Residential Zone") return 25; 
+  if (currentZone === "Standard Residential Zone") return 15; 
+  return 10; 
 }
 
 function isPriority(bin) {
@@ -55,7 +53,12 @@ function getDistance(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function fallbackOptimizeRoute(bins, startPoint = DEPOT) {
+function formatDistance(meters) {
+  if (!meters) return "--";
+  return (meters / 1000).toFixed(1) + " km";
+}
+
+function fallbackOptimizeRoute(bins, startPoint = LANDFILL) {
   const unvisited = bins.filter(hasValidCoordinates).map(normalizePoint);
   const route = [];
   let current = normalizePoint(startPoint);
@@ -72,7 +75,7 @@ function fallbackOptimizeRoute(bins, startPoint = DEPOT) {
   return route;
 }
 
-async function optimizeRouteByRoad(bins, startPoint = DEPOT) {
+async function optimizeRouteByRoad(bins, startPoint = LANDFILL) {
   const unvisited = bins.filter(hasValidCoordinates).map(normalizePoint);
   if (unvisited.length === 0) return [];
   const allPoints = [normalizePoint(startPoint), ...unvisited];
@@ -116,7 +119,8 @@ function Dashboard() {
   const [routeBinIds, setRouteBinIds] = useState([]);
   const [previewRouteBinIds, setPreviewRouteBinIds] = useState([]);
   const [collectingBinId, setCollectingBinId] = useState(null);
-
+  
+  const [totalRouteDistance, setTotalRouteDistance] = useState(0);
   const [showDispatchPrompt, setShowDispatchPrompt] = useState(false);
   const [hasIgnoredDispatch, setHasIgnoredDispatch] = useState(false);
 
@@ -132,8 +136,9 @@ function Dashboard() {
     setSimulationPaused(routeStarted);
   }, [routeStarted]);
 
+  // UI Master array includes Landfill natively
+  const extendedBins = useMemo(() => [...bins, LANDFILL], [bins]);
   const priorityBinsCount = bins.filter(isPriority).length;
-  
   const priorityBinIdsStr = useMemo(() => {
     return bins.filter((bin) => isPriority(bin) && hasValidCoordinates(bin)).map(b => b.binId).sort().join(",");
   }, [bins]);
@@ -142,13 +147,35 @@ function Dashboard() {
     let isMounted = true;
     const calculateRoadPreview = async () => {
       const priorityBins = bins.filter((bin) => isPriority(bin) && hasValidCoordinates(bin));
+      
       if (priorityBins.length === 0) {
-        if (isMounted) setPreviewRouteBinIds([]);
+        if (isMounted) {
+            setPreviewRouteBinIds([]);
+            setTotalRouteDistance(0);
+        }
         return;
       }
-      const shortestRoadPath = await optimizeRouteByRoad(priorityBins, DEPOT);
-      if (isMounted) setPreviewRouteBinIds(shortestRoadPath.map(b => b.binId));
+
+      const shortestRoadPath = await optimizeRouteByRoad(priorityBins, LANDFILL);
+      
+      // Sequence natively ends at the Landfill
+      const fullSequenceIds = [...shortestRoadPath.map(b => b.binId), LANDFILL.binId];
+      if (isMounted) setPreviewRouteBinIds(fullSequenceIds);
+
+      const sequencePoints = [LANDFILL, ...shortestRoadPath, LANDFILL];
+      const coordsString = sequencePoints.map(p => `${p.lng},${p.lat}`).join(";");
+      
+      try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=false`);
+        const data = await res.json();
+        if (isMounted && data.routes && data.routes.length > 0) {
+            setTotalRouteDistance(data.routes[0].distance);
+        }
+      } catch (e) {
+        console.error("Failed to get total distance", e);
+      }
     };
+    
     calculateRoadPreview();
     return () => { isMounted = false; };
   }, [priorityBinIdsStr]);
@@ -167,14 +194,8 @@ function Dashboard() {
       const dailyGenerationRate = getDailyGenerationRate(bin.zone);
       const currentFill = Number(bin.fillLevel) || 0;
       const newFill = Math.min(100, currentFill + dailyGenerationRate); 
-      
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { 
-        fillLevel: newFill, 
-        status: getStatusFromFillLevel(newFill), 
-        isCollecting: false,
-        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
-      });
+      batch.update(binRef, { fillLevel: newFill, status: getStatusFromFillLevel(newFill), isCollecting: false, zone: getUpdatedZoneName(bin.zone) });
     });
     await batch.commit();
     setHasIgnoredDispatch(false); 
@@ -184,20 +205,13 @@ function Dashboard() {
   const handleRandomizeBins = async () => {
     setShowDispatchPrompt(false);
     setHasIgnoredDispatch(true); 
-
     const batch = writeBatch(db);
     bins.forEach((bin) => {
       const fillLevel = Math.floor(Math.random() * 81) + 20; 
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { 
-        fillLevel, 
-        status: getStatusFromFillLevel(fillLevel), 
-        isCollecting: false,
-        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
-      });
+      batch.update(binRef, { fillLevel, status: getStatusFromFillLevel(fillLevel), isCollecting: false, zone: getUpdatedZoneName(bin.zone) });
     });
     await batch.commit();
-    
     setHasIgnoredDispatch(false);
     resetRouteState();
   };
@@ -206,15 +220,9 @@ function Dashboard() {
     const batch = writeBatch(db);
     bins.forEach((bin) => {
       const binRef = doc(db, "bins", bin.id);
-      batch.update(binRef, { 
-        fillLevel: 0, 
-        status: "normal", 
-        isCollecting: false,
-        zone: getUpdatedZoneName(bin.zone) // Auto-updates the database zone name!
-      });
+      batch.update(binRef, { fillLevel: 0, status: "normal", isCollecting: false, zone: getUpdatedZoneName(bin.zone) });
     });
     await batch.commit();
-    
     setHasIgnoredDispatch(false);
     setShowDispatchPrompt(false);
     resetRouteState();
@@ -232,26 +240,23 @@ function Dashboard() {
 
   useEffect(() => {
     if (priorityBinsCount >= VOLUME_THRESHOLD && !routeStarted && previewRouteBinIds.length > 0 && !hasIgnoredDispatch) {
-      const promptTimer = setTimeout(() => {
-        setShowDispatchPrompt(true);
-      }, 500);
+      const promptTimer = setTimeout(() => setShowDispatchPrompt(true), 500);
       return () => clearTimeout(promptTimer);
     } else if (priorityBinsCount < VOLUME_THRESHOLD) {
       setShowDispatchPrompt(false);
     }
   }, [priorityBinsCount, routeStarted, previewRouteBinIds, hasIgnoredDispatch]);
 
-  const handleCancelRoute = () => {
-    resetRouteState();
-  };
+  const handleCancelRoute = () => resetRouteState();
 
   const handleArriveAtStop = useCallback((bin) => {
     if (!routeStarted || collectingBinId || !bin?.binId) return;
 
-    if (bin.binId === DEPOT.binId) {
+    if (bin.binId === LANDFILL.binId) {
       setRouteStarted(false);
       setCompletedStops([]);
       setCollectingBinId(null);
+      alert("✅ Shift Complete! Truck has collected all bins, returned to the Landfill, and unloaded.");
       return;
     }
 
@@ -261,6 +266,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (!routeStarted || !collectingBinId) return;
+
+    // Prevent loop errors if it lands on Landfill
+    if (collectingBinId === LANDFILL.binId) return;
+
     const activeBin = bins.find((bin) => bin.binId === collectingBinId);
     if (!activeBin) return;
 
@@ -291,22 +300,19 @@ function Dashboard() {
       const recalculateContinuous = async () => {
         const remainingRouteIds = routeBinIds.filter(id => !completedStops.includes(id));
         const currentDestinationId = remainingRouteIds[0];
+        const isHeadingHome = currentDestinationId === LANDFILL.binId;
 
         let newRouteIds = [];
-        if (currentDestinationId) {
+        if (currentDestinationId && !isHeadingHome) {
             const destBin = bins.find(b => b.binId === currentDestinationId);
             const otherBins = currentPriorityBins.filter(b => b.binId !== currentDestinationId);
             const optimalTail = await optimizeRouteByRoad(otherBins, destBin);
-            newRouteIds = [currentDestinationId, ...optimalTail.map(b => b.binId)];
-        } else {
-            const lastCompletedId = [...completedStops].reverse().find(Boolean);
-            const lastCompletedBin = bins.find(b => b.binId === lastCompletedId && hasValidCoordinates(b));
-            const startPoint = lastCompletedBin ? normalizePoint(lastCompletedBin) : DEPOT;
-            const optimal = await optimizeRouteByRoad(currentPriorityBins, startPoint);
-            newRouteIds = optimal.map(b => b.binId);
+            newRouteIds = [currentDestinationId, ...optimalTail.map(b => b.binId), LANDFILL.binId];
+        } else if (currentDestinationId && isHeadingHome) {
+            newRouteIds = remainingRouteIds;
         }
 
-        if (isMounted) {
+        if (isMounted && newRouteIds.length > 0) {
           setRouteBinIds(prev => {
               const completed = prev.filter(id => completedStops.includes(id));
               return [...completed, ...newRouteIds];
@@ -318,12 +324,8 @@ function Dashboard() {
     return () => { isMounted = false; };
   }, [bins, routeStarted, routeBinIds, completedStops]);
 
-  // ⭐ NEW: Updated the filter list to use the new names
   const zones = ["All", "Commercial Zone", "Dense Residential Zone", "Standard Residential Zone", "Rural Zone"];
-  
-  // Also updated the filter logic to properly compare the newly updated names
   const filteredBins = selectedZone === "All" ? bins : bins.filter((bin) => getUpdatedZoneName(bin.zone) === selectedZone);
-  
   const critical = bins.filter((bin) => bin.status === "critical").length;
   const warning = bins.filter((bin) => bin.status === "warning").length;
   const normal = bins.filter((bin) => bin.status === "normal").length;
@@ -397,6 +399,7 @@ function Dashboard() {
             { label: "Critical", value: critical, color: "#c0392b", bg: "#fadbd8" },
             { label: "Warning", value: warning, color: "#d35400", bg: "#fdebd0" },
             { label: "Normal", value: normal, color: "#1e8449", bg: "#d5f5e3" },
+            { label: "Est. Route Distance", value: formatDistance(totalRouteDistance), color: "#8e44ad", bg: "#f4ecf7" }
           ].map((card) => (
             <div key={card.label} style={{ background: card.bg, borderLeft: `5px solid ${card.color}`, borderRadius: "10px", padding: "14px 20px", flex: "1", minWidth: "140px", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
               <div style={{ fontSize: "28px", fontWeight: 700, color: card.color }}>{card.value}</div>
@@ -418,11 +421,11 @@ function Dashboard() {
         </div>
 
         <div style={{ marginBottom: "20px" }}>
-          <Map bins={bins} completedStops={completedStops} routeVersion={routeVersion} routeStarted={routeStarted} collectingBinId={collectingBinId} routeBinIds={activeRouteBinIds} onArriveAtStop={handleArriveAtStop} />
+          <Map bins={extendedBins} completedStops={completedStops} routeVersion={routeVersion} routeStarted={routeStarted} collectingBinId={collectingBinId} routeBinIds={activeRouteBinIds} onArriveAtStop={handleArriveAtStop} />
         </div>
 
         <div style={{ marginBottom: "20px" }}>
-          <RoutePanel bins={bins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
+          <RoutePanel bins={extendedBins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
         </div>
 
         <CollectionLog />
