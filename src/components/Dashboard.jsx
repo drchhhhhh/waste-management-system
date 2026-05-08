@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../firebase/config";
+// ⭐ ADDED addDoc to save records to the new history database
 import { collection, onSnapshot, doc, updateDoc, writeBatch, addDoc } from "firebase/firestore";
 import BinCard from "./BinCard";
 import Map from "./Map";
@@ -260,6 +261,7 @@ function Dashboard() {
 
     if (completedStops.includes(bin.binId)) return;
 
+    // ⭐ NEW: Log to history collection exactly when the truck arrives at the bin
     const activeBin = bins.find((b) => b.binId === bin.binId);
     if (activeBin) {
       addDoc(collection(db, "collectionHistory"), {
@@ -354,290 +356,114 @@ function Dashboard() {
     return lookup;
   }, [activeRouteBinIds, completedStops, collectingBinId]);
 
-  /* ─── Derived alert state ─────────────────────────────────── */
-  const alertState = priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch
-    ? "danger"
-    : hasIgnoredDispatch
-    ? "warn"
-    : "ok";
-
-  const alertMeta = {
-    danger: { bg: "rgba(239,68,68,0.08)", border: "var(--status-full)", icon: "🔴", color: "#f87171" },
-    warn:   { bg: "rgba(245,158,11,0.08)", border: "var(--status-half)",  icon: "🟡", color: "#fbbf24" },
-    ok:     { bg: "rgba(34,197,94,0.08)",  border: "var(--status-empty)", icon: "🟢", color: "#4ade80" },
-  }[alertState];
-
-  /* ─── Button helpers ──────────────────────────────────────── */
-  const disabled = routeStarted || Boolean(collectingBinId);
-  const btnBase = {
-    border: "none", borderRadius: "8px", padding: "10px 16px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontSize: "13px", fontWeight: 600, transition: "var(--transition)",
-  };
-
   return (
-    <div className="App" style={{ position: "relative" }}>
-
-      {/* ── Dispatch Modal ──────────────────────────────────── */}
+    <div style={{ minHeight: "100vh", background: "#f0f2f5", position: "relative" }}>
       {showDispatchPrompt && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.8)", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          backdropFilter: "blur(8px)",
-        }}>
-          <div className="modern-card" style={{
-            maxWidth: "400px", textAlign: "center",
-            border: "1px solid rgba(239,68,68,0.35)",
-            boxShadow: "0 0 40px rgba(239,68,68,0.15)",
-          }}>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🚨</div>
-            <h2 style={{ margin: "0 0 10px", color: "#f87171", fontSize: "20px", fontFamily: "'Syne', sans-serif", fontWeight: 800 }}>
-              Dispatch Recommended
-            </h2>
-            <p style={{ color: "var(--text-muted)", marginBottom: "24px", fontSize: "14px", lineHeight: "1.6" }}>
-              The system predicts{" "}
-              <strong style={{ color: "var(--text-main)" }}>{priorityBinsCount} bins</strong>{" "}
-              require attention. Dispatch the truck now?
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+          <div style={{ background: "white", padding: "30px", borderRadius: "16px", maxWidth: "420px", textAlign: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: "50px", marginBottom: "15px" }}>🚨</div>
+            <h2 style={{ margin: "0 0 10px 0", color: "#c0392b", fontSize: "22px" }}>Dispatch Recommended</h2>
+            <p style={{ color: "#555", marginBottom: "25px", fontSize: "15px", lineHeight: "1.5" }}>
+              The system predicts <strong>{priorityBinsCount} bins</strong> require attention, reaching the operational threshold. Do you want to dispatch the collection truck now?
             </p>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-              <button
-                onClick={handleStartRoute}
-                style={{ ...btnBase, background: "var(--primary-color)", color: "#0d1a12", cursor: "pointer" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "var(--primary-hover)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "var(--primary-color)")}
-              >
-                ✅ Yes, Dispatch
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <button onClick={handleStartRoute} style={{ background: "#27ae60", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
+                ✅ Yes, Dispatch Route
               </button>
-              <button
-                onClick={() => { setShowDispatchPrompt(false); setHasIgnoredDispatch(true); }}
-                style={{ ...btnBase, background: "rgba(239,68,68,0.1)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer" }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.18)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.1)")}
-              >
-                ❌ Ignore
+              <button onClick={() => { setShowDispatchPrompt(false); setHasIgnoredDispatch(true); }} style={{ background: "#e74c3c", color: "white", border: "none", padding: "12px 20px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform = "scale(1.05)"} onMouseOut={(e) => e.target.style.transform = "scale(1)"}>
+                ❌ No, Ignore for Now
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div className="modern-card" style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        marginBottom: "24px", padding: "20px 28px",
-        background: "linear-gradient(135deg, var(--surface-raised) 0%, rgba(34,197,94,0.06) 100%)",
-        borderTop: "3px solid var(--primary-color)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: "12px",
-            background: "rgba(34,197,94,0.12)",
-            border: "1px solid rgba(34,197,94,0.25)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "22px",
-          }}>
-            ♻️
-          </div>
-          <div>
-            <h1 style={{ fontSize: "20px", fontWeight: 800, color: "var(--text-main)", marginBottom: "2px", fontFamily: "'Syne', sans-serif", letterSpacing: "-0.02em" }}>
-              EcoRoute
-              <span style={{ marginLeft: "10px", fontSize: "12px", fontWeight: 500, color: "var(--text-muted)", letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "'DM Sans', sans-serif" }}>
-                Smart Waste Monitor
-              </span>
-            </h1>
-            <p style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 400 }}>
-              Brgy. Palloocan West, Batangas City
-            </p>
-          </div>
-        </div>
-        <div style={{
-          background: "rgba(34,197,94,0.1)",
-          border: "1px solid rgba(34,197,94,0.2)",
-          borderRadius: "99px",
-          padding: "6px 14px",
-          fontSize: "12px",
-          color: "var(--primary-color)",
-          fontWeight: 600,
-          display: "flex", alignItems: "center", gap: "6px",
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--primary-color)", display: "inline-block", animation: "marker-pulse 2s infinite ease-in-out" }} />
-          Live
+      <div style={{ background: "linear-gradient(135deg, #1a5276, #2e86c1)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 2px 8px rgba(0,0,0,0.2)", gap: "16px", flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: "20px", fontWeight: 700 }}>🗑️ Waste Collection Monitoring System</h1>
+          <p style={{ fontSize: "13px", opacity: 0.85 }}>Brgy. Palloocan West, Batangas City (Smart Advisor Dispatch)</p>
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-
-        {/* ── Advisor Alert Banner ────────────────────────── */}
-        <div style={{
-          background: alertMeta.bg,
-          borderLeft: `4px solid ${alertMeta.border}`,
-          borderRadius: "var(--border-radius-sm)",
-          padding: "14px 20px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: "12px",
-        }}>
+      <div style={{ padding: "20px 24px" }}>
+        
+        <div style={{ background: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#fadbd8" : (hasIgnoredDispatch ? "#fdf2e9" : "#e8f8f5"), border: `2px solid ${priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#e67e22" : "#17a589")}`, borderRadius: "12px", padding: "12px 20px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ fontWeight: 600, color: "var(--text-main)", fontSize: "14px", marginBottom: "2px" }}>
-              {alertMeta.icon}{" "}
-              {hasIgnoredDispatch ? "Dispatch Paused by Admin" : "Smart Advisor Monitor"}
+            <div style={{ fontWeight: "bold", color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#922b21" : (hasIgnoredDispatch ? "#ba4a00" : "#0e6655"), fontSize: "15px" }}>
+              {hasIgnoredDispatch ? "⏸️ Dispatch Paused by Admin" : "📊 Smart Advisor Volume Monitor"}
             </div>
-            <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>
-              {hasIgnoredDispatch
-                ? "You ignored the prompt. System will alert again when data changes."
-                : `Dispatch is triggered when ${VOLUME_THRESHOLD} bins require collection.`}
+            <div style={{ color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#d35400" : "#117a65"), fontSize: "13px", marginTop: "2px" }}>
+              {hasIgnoredDispatch 
+                ? "You ignored the prompt. The system will prompt again when the next day is simulated or data changes." 
+                : `System advises dispatch when ${VOLUME_THRESHOLD} bins require collection.`}
             </div>
           </div>
-          <div style={{
-            fontSize: "22px", fontWeight: 800,
-            color: alertMeta.color,
-            fontFamily: "'Syne', sans-serif",
-            flexShrink: 0,
-          }}>
-            {priorityBinsCount} <span style={{ fontSize: "14px", color: "var(--text-muted)", fontWeight: 500 }}>/ {VOLUME_THRESHOLD}</span>
+          <div style={{ fontSize: "22px", fontWeight: 900, color: priorityBinsCount >= VOLUME_THRESHOLD && !hasIgnoredDispatch ? "#c0392b" : (hasIgnoredDispatch ? "#e67e22" : "#17a589") }}>
+            {priorityBinsCount} / {VOLUME_THRESHOLD}
           </div>
         </div>
 
-        {/* ── Stats Row ───────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "14px" }}>
+        <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
           {[
-            { label: "Total Bins",  value: bins.length,                     color: "#60a5fa", icon: "🗑️" },
-            { label: "Critical",    value: critical,                         color: "#f87171", icon: "🔴" },
-            { label: "Warning",     value: warning,                          color: "#fbbf24", icon: "🟡" },
-            { label: "Normal",      value: normal,                           color: "#4ade80", icon: "🟢" },
-            { label: "Est. Route",  value: formatDistance(totalRouteDistance), color: "#c084fc", icon: "📍" },
+            { label: "Total Bins", value: bins.length, color: "#2e86c1", bg: "#d6eaf8" },
+            { label: "Critical", value: critical, color: "#c0392b", bg: "#fadbd8" },
+            { label: "Warning", value: warning, color: "#d35400", bg: "#fdebd0" },
+            { label: "Normal", value: normal, color: "#1e8449", bg: "#d5f5e3" },
+            { label: "Est. Route Distance", value: formatDistance(totalRouteDistance), color: "#8e44ad", bg: "#f4ecf7" }
           ].map((card) => (
-            <div key={card.label} className="modern-card" style={{
-              padding: "18px 20px",
-              borderTop: `3px solid ${card.color}`,
-              display: "flex", flexDirection: "column", gap: "6px",
-            }}>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "5px" }}>
-                <span>{card.icon}</span> {card.label}
-              </div>
-              <div style={{ fontSize: "28px", fontWeight: 800, color: card.color, fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>
-                {card.value}
-              </div>
+            <div key={card.label} style={{ background: card.bg, borderLeft: `5px solid ${card.color}`, borderRadius: "10px", padding: "14px 20px", flex: "1", minWidth: "140px", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+              <div style={{ fontSize: "28px", fontWeight: 700, color: card.color }}>{card.value}</div>
+              <div style={{ fontSize: "13px", color: "#555", marginTop: "2px" }}>{card.label}</div>
             </div>
           ))}
         </div>
 
-        {/* ── Controls ────────────────────────────────────── */}
-        <div className="modern-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+        <div style={{ background: "white", borderRadius: "12px", padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,0.07)", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontWeight: 700, color: "var(--text-main)", fontSize: "15px", fontFamily: "'Syne', sans-serif" }}>
-              Predictive Controls
-            </div>
-            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "3px" }}>
-              Simulate time to predict waste generation rates.
-            </div>
+            <div style={{ fontWeight: 700, color: "#1a5276", fontSize: "14px" }}>Predictive Controls</div>
+            <div style={{ fontSize: "12px", color: "#666" }}>Simulate time passing to predict waste generation rates.</div>
           </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button
-              onClick={handleAdvanceOneDay}
-              disabled={disabled}
-              style={{ ...btnBase, background: disabled ? "rgba(255,255,255,0.05)" : "var(--primary-color)", color: disabled ? "var(--text-muted)" : "#0d1a12" }}
-              onMouseOver={(e) => !disabled && (e.currentTarget.style.background = "var(--primary-hover)")}
-              onMouseOut={(e) => !disabled && (e.currentTarget.style.background = "var(--primary-color)")}
-            >
-              📅 Advance 1 Day
-            </button>
-            <button
-              onClick={handleRandomizeBins}
-              disabled={disabled}
-              style={{ ...btnBase, background: "rgba(255,255,255,0.04)", color: disabled ? "var(--text-muted)" : "var(--text-main)", border: "1px solid var(--surface-border)" }}
-              onMouseOver={(e) => !disabled && (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-              onMouseOut={(e) => !disabled && (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-            >
-              🔀 Seed Random Bins
-            </button>
-            <button
-              onClick={handleResetSimulation}
-              disabled={disabled}
-              style={{ ...btnBase, background: "rgba(239,68,68,0.08)", color: disabled ? "var(--text-muted)" : "#f87171", border: "1px solid rgba(239,68,68,0.2)" }}
-              onMouseOver={(e) => !disabled && (e.currentTarget.style.background = "rgba(239,68,68,0.15)")}
-              onMouseOut={(e) => !disabled && (e.currentTarget.style.background = "rgba(239,68,68,0.08)")}
-            >
-              Reset to 0%
-            </button>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button onClick={handleAdvanceOneDay} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", color: "white", border: "none", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>📅 Advance Time (1 Day)</button>
+            <button onClick={handleRandomizeBins} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "#ffffff", color: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", border: "1px solid #b7c9d8", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>🔀 Seed Random Bins</button>
+            <button onClick={handleResetSimulation} disabled={routeStarted || Boolean(collectingBinId)} style={{ background: "#ffffff", color: routeStarted || collectingBinId ? "#9aa7b0" : "#1a5276", border: "1px solid #b7c9d8", borderRadius: "8px", padding: "9px 16px", cursor: routeStarted || collectingBinId ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700 }}>Reset all to 0%</button>
           </div>
         </div>
 
-        {/* ── Map ─────────────────────────────────────────── */}
-        <div className="modern-card" style={{ padding: "0", overflow: "hidden" }}>
+        <div style={{ marginBottom: "20px" }}>
           <Map bins={extendedBins} completedStops={completedStops} routeVersion={routeVersion} routeStarted={routeStarted} collectingBinId={collectingBinId} routeBinIds={activeRouteBinIds} onArriveAtStop={handleArriveAtStop} />
         </div>
 
-        {/* ── Route Panel ─────────────────────────────────── */}
-        <div className="modern-card">
+        <div style={{ marginBottom: "20px" }}>
           <RoutePanel bins={extendedBins} completedStops={completedStops} routeStarted={routeStarted} routeBinIds={activeRouteBinIds} collectingBinId={collectingBinId} onStartRoute={handleStartRoute} onCancelRoute={handleCancelRoute} />
         </div>
 
-        {/* ── Collection Log ──────────────────────────────── */}
-        <div className="modern-card">
-          <CollectionLog />
-        </div>
+        {/* The updated Historic Collection Log */}
+        <CollectionLog />
 
-        {/* ── Zone Filter Pills ────────────────────────────── */}
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
           {zones.map((zone) => (
-            <button
-              key={zone}
-              onClick={() => setSelectedZone(zone)}
-              style={{
-                padding: "7px 18px",
-                borderRadius: "99px",
-                border: selectedZone === zone ? "1px solid var(--primary-color)" : "1px solid var(--surface-border)",
-                cursor: "pointer",
-                background: selectedZone === zone ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.03)",
-                color: selectedZone === zone ? "var(--primary-color)" : "var(--text-muted)",
-                fontWeight: 600,
-                fontSize: "12px",
-                transition: "var(--transition)",
-                letterSpacing: "0.02em",
-              }}
-            >
-              {zone}
-            </button>
+            <button key={zone} onClick={() => setSelectedZone(zone)} style={{ padding: "8px 18px", borderRadius: "20px", border: "none", cursor: "pointer", background: selectedZone === zone ? "#2e86c1" : "#dce9f5", color: selectedZone === zone ? "white" : "#2e86c1", fontWeight: 600, fontSize: "13px", transition: "all 0.2s" }}>{zone}</button>
           ))}
         </div>
 
-        {/* ── Bins Grid ───────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
           {filteredBins.map((bin) => {
             const routeData = routeLookup[bin.binId] || {};
             const isPredictiveCatch = isPriority(bin) && Number(bin.fillLevel) < 70;
-
+            
             return (
-              <div key={bin.binId} style={{ position: "relative" }}>
+              <div key={bin.binId} style={{position: 'relative'}}>
                 {isPredictiveCatch && (
-                  <div style={{
-                    position: "absolute", top: -10, right: -6,
-                    background: "var(--status-half)",
-                    color: "#0d1a12",
-                    fontSize: "10px",
-                    padding: "3px 8px",
-                    borderRadius: "99px",
-                    fontWeight: 700,
-                    zIndex: 10,
-                    boxShadow: "0 2px 8px rgba(245,158,11,0.4)",
-                    letterSpacing: "0.03em",
-                  }}>
+                  <div style={{ position: "absolute", top: -8, right: -8, background: "#f39c12", color: "white", fontSize: "10px", padding: "3px 6px", borderRadius: "10px", fontWeight: "bold", zIndex: 10 }}>
                     ⚠️ Overflow Predicted
                   </div>
                 )}
-                <BinCard
-                  bin={bin}
-                  routeOrder={routeData.routeOrder}
-                  isCurrentDestination={routeData.isCurrentDestination}
-                  isCollecting={routeData.isCollecting}
-                  isCompleted={completedStops.includes(bin.binId)}
-                />
+                <BinCard bin={bin} routeOrder={routeData.routeOrder} isCurrentDestination={routeData.isCurrentDestination} isCollecting={routeData.isCollecting} isCompleted={completedStops.includes(bin.binId)} />
               </div>
             );
           })}
         </div>
-
       </div>
     </div>
   );
