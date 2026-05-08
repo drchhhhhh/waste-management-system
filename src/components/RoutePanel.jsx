@@ -118,7 +118,7 @@ function RoutePanel({
   const remainingRouteBins = routeBins.filter((bin) => !completedStops.includes(bin.binId));
   const orderedRoute = attachSequentialDistances(remainingRouteBins, collectorStart);
   const fullPlannedRoute = attachSequentialDistances(routeBins, LANDFILL);
-  const scheduledCount = routeBins.length-1;
+  const scheduledCount = routeBins.length > 0 ? routeBins.length - 1 : 0;
   const totalDistance = orderedRoute.reduce((sum, bin) => sum + bin.distanceFromPrev, 0) / 1000;
   const routeComplete = !routeStarted && scheduledCount > 0 && completedStops.length >= scheduledCount;
 
